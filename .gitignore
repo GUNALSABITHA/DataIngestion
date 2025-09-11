@@ -1,9 +1,10 @@
-<<<<<<< HEAD
+# Python and virtual environments
 cts/
-__pychache__/
-/*.pyc
+__pycache__/
+*.pyc
 .venv/
-=======
+
+# Archives and packages
 *.tar
 *.tar.*
 *.jar
@@ -16,6 +17,26 @@ __pychache__/
 *.log.*
 *.sig
 
+# Dependency directories
+node_modules/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/
+
+# Build directories
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Directories
 pkg/
 src/
->>>>>>> aa976b6b2f860be34661ad0eb97624beb1aa3cca
+temp_uploads/
