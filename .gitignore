@@ -1,4 +1,21 @@
+<<<<<<< HEAD
 cts/
 __pychache__/
 /*.pyc
 .venv/
+=======
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.deb
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+src/
+>>>>>>> aa976b6b2f860be34661ad0eb97624beb1aa3cca
