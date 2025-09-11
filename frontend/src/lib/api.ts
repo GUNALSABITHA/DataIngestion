@@ -89,6 +89,27 @@ class ApiClient {
     return response.json();
   }
 
+  // Upload multiple files
+  async uploadFiles(files: File[], action: 'validate' | 'kafka' | 'pipeline' = 'validate'): Promise<{ jobs: UploadResponse[] }> {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    formData.append('action', action);
+
+    const response = await fetch(`${this.baseURL}/api/upload-multiple`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `Upload failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
   // Get job status
   async getJobStatus(jobId: string): Promise<JobStatus> {
     return this.request(`/api/status/${jobId}`);

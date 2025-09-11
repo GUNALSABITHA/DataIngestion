@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 import uvicorn
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -203,7 +203,7 @@ async def health_check():
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    action: str = "validate"  # "validate", "kafka", "pipeline"
+    action: str = Form("validate")  # "validate", "kafka", "pipeline"
 ):
     """
     Upload a file and start processing
@@ -254,6 +254,62 @@ async def upload_file(
             "error": str(e)
         })
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+@app.post("/api/upload-multiple")
+async def upload_multiple_files(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    action: str = Form("validate")
+):
+    """
+    Upload multiple files and start processing each as a separate job.
+    Returns list of job_ids for tracking progress.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    results: List[Dict[str, Any]] = []
+
+    temp_dir = Path("temp_uploads")
+    temp_dir.mkdir(exist_ok=True)
+
+    for file in files:
+        if not file.filename:
+            continue
+
+        job_id = str(uuid.uuid4())
+        job_db.create_job(job_id, file.filename, action)
+
+        file_path = temp_dir / f"{job_id}_{file.filename}"
+        try:
+            content = await file.read()
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+
+            job_db.update_job(job_id, {
+                "file_path": str(file_path),
+                "message": "File saved, processing queued"
+            })
+
+            if action == "validate":
+                background_tasks.add_task(process_validation, job_id, str(file_path))
+            elif action == "kafka":
+                background_tasks.add_task(process_kafka, job_id, str(file_path))
+            elif action == "pipeline":
+                background_tasks.add_task(process_full_pipeline, job_id, str(file_path))
+            else:
+                job_db.update_job(job_id, {"status": "failed", "error": f"Invalid action: {action}"})
+                continue
+
+            results.append({"job_id": job_id, "status": "accepted", "message": "Processing started"})
+        except Exception as e:
+            job_db.update_job(job_id, {"status": "failed", "error": str(e)})
+            results.append({"job_id": job_id, "status": "failed", "message": str(e)})
+
+    if not results:
+        raise HTTPException(status_code=400, detail="No valid files processed")
+
+    return {"jobs": results}
 
 async def process_validation(job_id: str, file_path: str):
     """Background task for file validation"""
