@@ -1,8 +1,14 @@
 # Python and virtual environments
-cts/
 __pycache__/
 *.pyc
 .venv/
+venv/
+ENV/
+env/
+*.egg-info/
+
+# Ignore hackathon/dependency folder
+ctshackathon/
 
 # Archives and packages
 *.tar
@@ -40,3 +46,4 @@ build/
 pkg/
 src/
 temp_uploads/
+
