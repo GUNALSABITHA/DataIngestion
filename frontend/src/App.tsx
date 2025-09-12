@@ -41,7 +41,9 @@ function AppRoutes() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navigation isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      {location.pathname !== "/login" && (
+        <Navigation isLoggedIn={isLoggedIn} onLogout={handleLogout} />
+      )}
       <Routes>
         <Route path="/login" element={<Login onLogin={handleLogin} />} />
         <Route path="/" element={isLoggedIn ? <Index /> : <Login onLogin={handleLogin} />} />
