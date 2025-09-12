@@ -1,13 +1,18 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Database, Upload, BarChart3, Shield, Home } from "lucide-react";
 
-const Navigation = () => {
+interface NavigationProps {
+  isLoggedIn: boolean;
+  onLogout: () => void;
+}
+
+const Navigation = ({ isLoggedIn, onLogout }: NavigationProps) => {
   const navItems = [
     { to: "/", label: "Home", icon: Home },
     { to: "/upload", label: "Upload", icon: Upload },
-    { to: "/results", label: "Results", icon: BarChart3 },
     { to: "/quarantine", label: "Quarantine", icon: Shield },
+    { to: "/results", label: "History", icon: BarChart3 },
   ];
 
   return (
@@ -36,6 +41,18 @@ const Navigation = () => {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            {!isLoggedIn ? (
+              <NavLink to="/login" className="ml-2">
+                <span className="bg-red-500 text-white rounded px-4 py-2 font-medium">Login</span>
+              </NavLink>
+            ) : (
+              <Button
+                className="ml-2 bg-red-500 text-white rounded px-4 py-2 hover:bg-red-600 font-medium"
+                onClick={onLogout}
+              >
+                Logout
+              </Button>
+            )}
           </div>
         </div>
       </div>

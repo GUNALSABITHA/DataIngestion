@@ -110,6 +110,27 @@ class ApiClient {
     return response.json();
   }
 
+  // Start API streaming
+  async startApiStreaming(apiUrl: string, action: 'validate' | 'kafka' | 'pipeline' = 'validate'): Promise<UploadResponse> {
+    const response = await fetch(`${this.baseURL}/api/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_url: apiUrl,
+        action: action,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `API streaming failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
   // Get job status
   async getJobStatus(jobId: string): Promise<JobStatus> {
     return this.request(`/api/status/${jobId}`);

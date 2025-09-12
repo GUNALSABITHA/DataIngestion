@@ -12,18 +12,8 @@ This pipeline revolutionizes data processing by automatically understanding any 
 - **Zero Configuration**: Automatically understands any data structure
 - **15+ Data Type Detection**: From basic types to complex patterns (emails, phones, currencies, etc.)
 - **Quality Scoring**: Advanced quality metrics for every field and record
-- **Adaptive Learning**: Continuously improves understanding of your data
-
-### 🔄 **Complete Data Pipeline**
-- **Multi-Format Support**: CSV, Excel, JSON, Parquet, and more
-- **Kafka Integration**: Real-time streaming with enhanced producers/consumers
-- **Validation & Quality Control**: Automatic good/bad data separation
 - **Comprehensive Reporting**: HTML, Markdown, and text reports with insights
 
-### 📊 **Advanced Analytics**
-- **Quality Dashboards**: Visual insights into data quality
-- **Pattern Recognition**: Detects anomalies and inconsistencies
-- **Data Profiling**: Automatic statistical analysis and summaries
 - **Performance Metrics**: Processing throughput and efficiency tracking
 - **Pipeline Orchestration**: Complete pipeline orchestration with CLI interface
 - **Multiple Output Formats**: Save results in CSV, JSON, Excel, Parquet
@@ -76,67 +66,43 @@ docker-compose up -d
 ```bash
 python data_ingestion_pipeline.py validate-file --input-file CustomersData.csv
 ```
-
 ### 2. Send File to Kafka with Validation
 
 ```bash
-python data_ingestion_pipeline.py file-to-kafka --input-file CustomersData.csv --topic customer_data
 ```
 
 ### 3. Consume from Kafka and Analyze
-
 ```bash
 python data_ingestion_pipeline.py kafka-to-analysis --topic customer_data --timeout 30
 ```
-
 ### 4. Full Pipeline (File → Kafka → Analysis)
 
 ```bash
 python data_ingestion_pipeline.py full-pipeline --input-file CustomersData.csv --topic customer_data
 ```
-
 ### 5. Run Examples
 
 ```bash
-python examples.py
 ```
 
-## 📚 Detailed Usage
 
 ### Command Line Interface
 
-The pipeline provides a comprehensive CLI with the following commands:
-
-#### Commands
-- `validate-file`: Validate file without Kafka
-- `file-to-kafka`: Send file data to Kafka
-- `kafka-to-analysis`: Consume and analyze Kafka data
-- `full-pipeline`: Complete end-to-end pipeline
 
 #### Common Options
 - `--input-file, -i`: Input data file path
-- `--topic, -t`: Kafka topic (default: data_ingestion_topic)
-- `--kafka-servers, -k`: Kafka bootstrap servers (default: localhost:9092)
-- `--max-records, -m`: Maximum records to process
-- `--timeout`: Timeout in seconds (default: 60)
 - `--quality-threshold, -q`: Quality threshold (default: 0.8)
 - `--output-dir, -o`: Output directory (default: output)
 - `--verbose, -v`: Enable verbose logging
-
 ### Python API Usage
 
 #### File Validation Only
-
 ```python
 from data_ingestion_pipeline import DataIngestionPipeline
 
 pipeline = DataIngestionPipeline()
 results = pipeline.validate_file_only(
     input_file="data.csv",
-    quality_threshold=0.8
-)
-print(f"Success rate: {results['success_rate']}")
-```
 
 #### Using Individual Services
 
@@ -152,7 +118,6 @@ records = processor.convert_dataframe_to_records(df)
 # Validate data
 validator = DataValidator()
 results = validator.validate_batch(records)
-good_data = validator.get_good_data()
 bad_data = validator.get_bad_data()
 ```
 

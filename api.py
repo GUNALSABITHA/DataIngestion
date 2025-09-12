@@ -158,6 +158,12 @@ class PipelineRequest(BaseModel):
     quality_threshold: float = 0.8
     timeout_seconds: int = 30
 
+class ApiStreamingRequest(BaseModel):
+    api_url: str
+    action: str = "validate"
+    quality_threshold: float = 0.8
+    timeout_seconds: int = 300  # 5 minutes default for streaming
+
 class JobStatus(BaseModel):
     job_id: str
     status: str  # "pending", "running", "completed", "failed"
@@ -311,6 +317,33 @@ async def upload_multiple_files(
 
     return {"jobs": results}
 
+@app.post("/api/stream")
+async def start_api_streaming(
+    background_tasks: BackgroundTasks,
+    request: ApiStreamingRequest
+):
+    """
+    Start streaming data from an API endpoint and process it.
+    Returns job_id for tracking progress.
+    """
+    # Generate job ID
+    job_id = str(uuid.uuid4())
+    
+    # Create job entry
+    job_db.create_job(job_id, f"API Stream: {request.api_url}", request.action)
+    
+    # Start background streaming task
+    background_tasks.add_task(
+        process_api_streaming, 
+        job_id, 
+        request.api_url, 
+        request.action,
+        request.quality_threshold,
+        request.timeout_seconds
+    )
+    
+    return {"job_id": job_id, "status": "accepted", "message": "API streaming started"}
+
 async def process_validation(job_id: str, file_path: str):
     """Background task for file validation"""
     try:
@@ -431,6 +464,56 @@ async def process_full_pipeline(job_id: str, file_path: str, topic: str = "data_
             "progress": 100,
             "status": "completed",
             "message": "Full pipeline completed successfully",
+            "result": results
+        })
+        
+    except Exception as e:
+        job_db.update_job(job_id, {
+            "status": "failed",
+            "error": str(e)
+        })
+
+async def process_api_streaming(job_id: str, api_url: str, action: str, quality_threshold: float, timeout_seconds: int):
+    """Background task for API streaming"""
+    try:
+        job_db.update_job(job_id, {
+            "status": "running",
+            "progress": 10,
+            "message": "Connecting to API..."
+        })
+        
+        # Import streaming service
+        from services.api_streaming_service import ApiStreamingService
+        
+        # Create streaming service
+        streaming_service = ApiStreamingService()
+        
+        # Create output directory
+        output_dir = f"api_output/{job_id}"
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        job_db.update_job(job_id, {
+            "progress": 20,
+            "message": "Starting data stream..."
+        })
+        
+        # Stream and process data
+        results = await streaming_service.stream_and_process(
+            api_url=api_url,
+            action=action,
+            quality_threshold=quality_threshold,
+            timeout_seconds=timeout_seconds,
+            output_dir=output_dir,
+            progress_callback=lambda progress, message: job_db.update_job(job_id, {
+                "progress": 20 + int(progress * 0.7),  # 20-90% for streaming
+                "message": message
+            })
+        )
+        
+        job_db.update_job(job_id, {
+            "progress": 100,
+            "status": "completed",
+            "message": "API streaming completed successfully",
             "result": results
         })
         
