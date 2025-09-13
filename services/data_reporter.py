@@ -11,6 +11,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import StringIO
+import asyncio
 
 from models.data_models import DataValidationResult, CustomerTransaction, DataIngestionStats, DataQualityLevel
 
@@ -22,13 +23,212 @@ logger = logging.getLogger(__name__)
 class DataQualityReporter:
     """Service for generating data quality reports and visualizations"""
     
-    def __init__(self):
+    def __init__(self, database_service=None):
         self.reports_dir = Path("reports")
         self.reports_dir.mkdir(exist_ok=True)
+        self.database_service = database_service
         
         # Set up plotting style
         plt.style.use('default')
         sns.set_palette("husl")
+    
+    async def get_database_service(self):
+        """Get database service instance"""
+        if self.database_service:
+            return self.database_service
+        
+        # Import here to avoid circular imports
+        from services.database_service import DatabaseService
+        from database.connection import get_database_connection
+        
+        try:
+            connection = await get_database_connection()
+            return DatabaseService(connection)
+        except Exception as e:
+            logger.error(f"Failed to get database service: {e}")
+            return None
+    
+    async def get_job_data_from_database(self, job_id: str = None) -> List[Dict[str, Any]]:
+        """Get job data from warehouse database"""
+        try:
+            db_service = await self.get_database_service()
+            if not db_service:
+                return []
+            
+            if job_id:
+                # Get specific job
+                query = """
+                SELECT 
+                    fpj.job_id,
+                    fpj.job_name,
+                    fpj.job_type,
+                    fpj.status,
+                    fpj.total_records,
+                    fpj.valid_records,
+                    fpj.invalid_records,
+                    fpj.quarantined_records,
+                    fpj.avg_quality_score,
+                    fpj.success_rate,
+                    fpj.started_at,
+                    fpj.completed_at,
+                    fpj.created_at,
+                    fpj.error_message,
+                    ds.source_name,
+                    ds.source_type,
+                    ds.source_format
+                FROM warehouse.fact_processing_job fpj
+                JOIN warehouse.dim_data_source ds ON fpj.source_id = ds.source_id
+                WHERE fpj.job_id = :job_id
+                """
+                results = await db_service.execute_query(query, {"job_id": job_id})
+            else:
+                # Get all jobs
+                query = """
+                SELECT 
+                    fpj.job_id,
+                    fpj.job_name,
+                    fpj.job_type,
+                    fpj.status,
+                    fpj.total_records,
+                    fpj.valid_records,
+                    fpj.invalid_records,
+                    fpj.quarantined_records,
+                    fpj.avg_quality_score,
+                    fpj.success_rate,
+                    fpj.started_at,
+                    fpj.completed_at,
+                    fpj.created_at,
+                    fpj.error_message,
+                    ds.source_name,
+                    ds.source_type,
+                    ds.source_format
+                FROM warehouse.fact_processing_job fpj
+                JOIN warehouse.dim_data_source ds ON fpj.source_id = ds.source_id
+                ORDER BY fpj.created_at DESC
+                LIMIT 100
+                """
+                results = await db_service.execute_query(query)
+            
+            return results or []
+            
+        except Exception as e:
+            logger.error(f"Failed to get job data from database: {e}")
+            return []
+    
+    async def get_validation_results_from_database(self, job_id: str = None) -> List[Dict[str, Any]]:
+        """Get validation results from warehouse database"""
+        try:
+            db_service = await self.get_database_service()
+            if not db_service:
+                return []
+            
+            if job_id:
+                query = """
+                SELECT 
+                    fvr.result_id,
+                    fvr.job_id,
+                    fvr.rule_name,
+                    fvr.rule_type,
+                    fvr.field_name,
+                    fvr.records_checked,
+                    fvr.records_passed,
+                    fvr.records_failed,
+                    fvr.success_rate,
+                    fvr.error_details,
+                    fvr.validated_at
+                FROM warehouse.fact_validation_result fvr
+                WHERE fvr.job_id = :job_id
+                ORDER BY fvr.validated_at DESC
+                """
+                results = await db_service.execute_query(query, {"job_id": job_id})
+            else:
+                query = """
+                SELECT 
+                    fvr.result_id,
+                    fvr.job_id,
+                    fvr.rule_name,
+                    fvr.rule_type,
+                    fvr.field_name,
+                    fvr.records_checked,
+                    fvr.records_passed,
+                    fvr.records_failed,
+                    fvr.success_rate,
+                    fvr.error_details,
+                    fvr.validated_at
+                FROM warehouse.fact_validation_result fvr
+                ORDER BY fvr.validated_at DESC
+                LIMIT 1000
+                """
+                results = await db_service.execute_query(query)
+            
+            return results or []
+            
+        except Exception as e:
+            logger.error(f"Failed to get validation results from database: {e}")
+            return []
+    
+    async def get_quality_metrics_from_database(self, job_id: str = None) -> List[Dict[str, Any]]:
+        """Get quality metrics from warehouse database"""
+        try:
+            db_service = await self.get_database_service()
+            if not db_service:
+                return []
+            
+            if job_id:
+                query = """
+                SELECT 
+                    fqm.metric_id,
+                    fqm.job_id,
+                    fqm.field_name,
+                    fqm.metric_type,
+                    fqm.metric_value,
+                    fqm.metric_details,
+                    fqm.created_at as calculated_at
+                FROM warehouse.fact_quality_metric fqm
+                WHERE fqm.job_id = :job_id
+                ORDER BY fqm.created_at DESC
+                """
+                raw = await db_service.execute_query(query, {"job_id": job_id})
+            else:
+                query = """
+                SELECT 
+                    fqm.metric_id,
+                    fqm.job_id,
+                    fqm.field_name,
+                    fqm.metric_type,
+                    fqm.metric_value,
+                    fqm.metric_details,
+                    fqm.created_at as calculated_at
+                FROM warehouse.fact_quality_metric fqm
+                ORDER BY fqm.created_at DESC
+                LIMIT 1000
+                """
+                raw = await db_service.execute_query(query)
+
+            results: List[Dict[str, Any]] = []
+            for r in raw or []:
+                details = {}
+                if r.get('metric_details'):
+                    try:
+                        details = json.loads(r['metric_details']) if isinstance(r['metric_details'], str) else r['metric_details']
+                    except Exception:
+                        details = {"raw": r.get('metric_details')}
+                display_name = details.get('display_name') or r.get('field_name') or r.get('metric_type')
+                results.append({
+                    'metric_id': r.get('metric_id'),
+                    'job_id': r.get('job_id'),
+                    'metric_name': display_name,  # keep response backward compatible
+                    'field_name': r.get('field_name'),
+                    'metric_type': r.get('metric_type'),
+                    'metric_value': r.get('metric_value'),
+                    'calculated_at': r.get('calculated_at'),
+                    'details': details
+                })
+            return results
+            
+        except Exception as e:
+            logger.error(f"Failed to get quality metrics from database: {e}")
+            return []
     
     def generate_comprehensive_report(self, 
                                     validation_results: List[DataValidationResult],

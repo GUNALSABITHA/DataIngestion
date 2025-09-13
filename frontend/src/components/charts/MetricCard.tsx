@@ -19,12 +19,18 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   format = 'number',
   icon,
 }) => {
-  const percentage = total > 0 ? (value / total) * 100 : 0;
+  // Cap percentage at 100% and handle already-percentage values
+  const isPercentageFormat = format === 'percentage';
+  const displayPercentage = isPercentageFormat 
+    ? Math.min(Math.max(value, 0), 100)  // Cap between 0-100%
+    : total > 0 ? Math.min((value / total) * 100, 100) : 0;
   
   const chartData = {
     datasets: [
       {
-        data: [value, total - value],
+        data: isPercentageFormat 
+          ? [displayPercentage, 100 - displayPercentage]
+          : [value, Math.max(total - value, 0)],
         backgroundColor: [color, '#e5e7eb'],
         borderWidth: 0,
         cutout: '70%',
@@ -45,8 +51,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     },
   };
 
-  const displayValue = format === 'percentage' 
-    ? `${percentage.toFixed(1)}%`
+  const displayValue = isPercentageFormat 
+    ? `${displayPercentage.toFixed(1)}%`
     : value.toLocaleString();
 
   return (
@@ -60,7 +66,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
           </div>
           {format === 'number' && total > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              {percentage.toFixed(1)}% of {total.toLocaleString()}
+              {displayPercentage.toFixed(1)}% of {total.toLocaleString()}
             </p>
           )}
         </div>

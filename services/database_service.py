@@ -12,6 +12,7 @@ import json
 import hashlib
 
 from sqlalchemy import create_engine, text, MetaData
+from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
@@ -158,15 +159,25 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error closing database connections: {str(e)}")
     
-    async def execute_query(self, query: str, params: tuple = None):
-        """Execute a query and return results"""
+    async def execute_query(self, query: str, params: dict = None):
+        """Execute a query and return results as list of dictionaries"""
         try:
             async with self.async_engine.begin() as conn:
                 if params:
                     result = await conn.execute(text(query), params)
                 else:
                     result = await conn.execute(text(query))
-                return result.fetchall()
+                
+                # Check if query returns rows (SELECT statements)
+                if result.returns_rows:
+                    # Convert rows to dictionaries
+                    rows = result.fetchall()
+                    if rows:
+                        return [dict(row._mapping) for row in rows]
+                    return []
+                else:
+                    # For INSERT/UPDATE/DELETE statements, return affected row count
+                    return {"affected_rows": result.rowcount}
         except Exception as e:
             logger.error(f"Query execution failed: {str(e)}")
             raise
@@ -367,6 +378,46 @@ class DatabaseService:
             await session.commit()
             
             logger.info(f"Stored {len(validation_records)} validation results for job {job_id}")
+
+    async def bulk_store_validation_results(self, job_id: str, validation_results, chunk_size: int = 5000):
+        """High-performance bulk insert of validation results using Core executemany.
+
+        Expects each item to be an EnhancedValidationResult (or similar) with attributes:
+          is_valid, quality_score, quality_level, field_scores, errors, warnings, original_data, validated_data
+        """
+        from database.models import FactValidationResult  # local import to avoid circular
+        total = 0
+        async with self.get_async_session() as session:
+            table = FactValidationResult.__table__
+            batch = []
+            for idx, result in enumerate(validation_results):
+                batch.append({
+                    'result_id': None,  # default generated
+                    'job_id': job_id,
+                    'record_id': idx,
+                    'is_valid': getattr(result, 'is_valid', False),
+                    'quality_score': float(getattr(result, 'quality_score', 0.0) or 0.0),
+                    'quality_level': str(getattr(result, 'quality_level', 'poor')).lower(),
+                    'field_scores': getattr(result, 'field_scores', {}) or {},
+                    'issue_count': len(getattr(result, 'errors', []) or []),
+                    'warning_count': len(getattr(result, 'warnings', []) or []),
+                    'issues': getattr(result, 'errors', []) or [],
+                    'warnings': getattr(result, 'warnings', []) or [],
+                    'original_data': getattr(result, 'original_data', {}) or {},
+                    'processed_data': getattr(result, 'validated_data', None) or {},
+                    'validated_at': datetime.now()
+                })
+                if len(batch) >= chunk_size:
+                    await session.execute(table.insert(), batch)
+                    await session.commit()
+                    total += len(batch)
+                    logger.info(f"Bulk inserted {total} validation rows (chunk size {chunk_size}) for job {job_id}")
+                    batch.clear()
+            if batch:
+                await session.execute(table.insert(), batch)
+                await session.commit()
+                total += len(batch)
+            logger.info(f"Bulk insert completed: {total} validation rows stored for job {job_id}")
     
     def _determine_quality_level(self, quality_score: float) -> str:
         """Determine quality level based on score"""
@@ -429,10 +480,30 @@ class DatabaseService:
 
 # Global database service instance
 db_service = DatabaseService()
+_db_unavailable = False  # Flag to track if database is unavailable
 
 
 async def get_database_service() -> DatabaseService:
     """Get the global database service instance"""
+    global _db_unavailable
+    
+    # If we already know the database is unavailable, don't try again
+    if _db_unavailable:
+        raise Exception("Database service is unavailable")
+    
     if not db_service._initialized:
-        await db_service.initialize()
+        try:
+            await db_service.initialize()
+        except Exception as e:
+            # Mark database as unavailable to avoid repeated connection attempts
+            _db_unavailable = True
+            logger.warning("Database marked as unavailable, API will run in file-only mode")
+            raise e
     return db_service
+
+
+def reset_database_availability():
+    """Reset the database availability flag to allow retry"""
+    global _db_unavailable
+    _db_unavailable = False
+    logger.info("Database availability flag reset - will retry connection on next request")

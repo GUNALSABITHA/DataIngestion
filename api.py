@@ -37,7 +37,7 @@ try:
 except ImportError:
     DataQualityReporter = None
 from services.kafka_producer_enhanced import EnhancedKafkaProducer
-from services.database_service import get_database_service
+from services.database_service import get_database_service, reset_database_availability
 from services.etl_service import get_etl_service
 from data_ingestion_pipeline import DataIngestionPipeline
 
@@ -63,17 +63,57 @@ data_validator = DataValidator()
 reporter = DataQualityReporter() if DataQualityReporter else None
 pipeline = DataIngestionPipeline()
 
-# Enhanced In-memory Database for job persistence
-import threading
+# Database-backed Job Service
+import uuid
+from sqlalchemy import text
 
-class InMemoryJobDB:
+class DatabaseJobService:
+    """Job service that persists to PostgreSQL warehouse"""
+    
     def __init__(self):
-        self.jobs: Dict[str, Dict[str, Any]] = {}
         self.lock = threading.RLock()
     
-    def create_job(self, job_id: str, filename: str, action: str) -> Dict[str, Any]:
-        """Create a new job entry"""
-        with self.lock:
+    async def create_job(self, job_id: str, filename: str, action: str) -> Dict[str, Any]:
+        """Create a new job entry in database"""
+        try:
+            db_service = await get_database_service()
+            
+            # Create data source if it doesn't exist
+            source_query = """
+            INSERT INTO warehouse.dim_data_source (source_id, source_name, source_type, source_format)
+            VALUES (:source_id, :source_name, :source_type, :source_format)
+            ON CONFLICT (source_id) DO NOTHING
+            """
+            
+            source_id = str(uuid.uuid4())
+            await db_service.execute_query(source_query, {
+                "source_id": source_id,
+                "source_name": filename,
+                "source_type": "file",
+                "source_format": filename.split('.')[-1] if '.' in filename else "unknown"
+            })
+            
+            # Create processing job
+            job_query = """
+            INSERT INTO warehouse.fact_processing_job (
+                job_id, source_id, job_name, job_type, status, 
+                total_records, valid_records, invalid_records, quarantined_records,
+                started_at, created_at
+            ) VALUES (
+                :job_id, :source_id, :job_name, :job_type, :status,
+                0, 0, 0, 0,
+                NOW(), NOW()
+            )
+            """
+            
+            await db_service.execute_query(job_query, {
+                "job_id": job_id,
+                "source_id": source_id,
+                "job_name": filename,
+                "job_type": action,
+                "status": "pending"
+            })
+            
             job_data = {
                 'job_id': job_id,
                 'filename': filename,
@@ -86,53 +126,352 @@ class InMemoryJobDB:
                 'created_at': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat()
             }
-            self.jobs[job_id] = job_data
-            return job_data.copy()
+            
+            return job_data
+            
+        except Exception as e:
+            logger.error(f"Failed to create job in database: {e}")
+            # Fallback to in-memory for now
+            return self._create_job_fallback(job_id, filename, action)
     
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Get a job by ID"""
-        with self.lock:
-            job = self.jobs.get(job_id)
-            if job:
-                # Convert numpy types before returning
-                return convert_numpy_types(job.copy())
+    def _create_job_fallback(self, job_id: str, filename: str, action: str) -> Dict[str, Any]:
+        """Fallback in-memory job creation"""
+        job_data = {
+            'job_id': job_id,
+            'filename': filename,
+            'action': action,
+            'status': 'pending',
+            'progress': 0,
+            'message': 'Job created (in-memory fallback)',
+            'result': None,
+            'error': None,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        return job_data
+    
+    async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get a job by ID from database"""
+        try:
+            db_service = await get_database_service()
+            
+            query = """
+            SELECT 
+                fpj.job_id,
+                fpj.job_name as filename,
+                fpj.job_type as action,
+                fpj.status,
+                fpj.total_records,
+                fpj.valid_records,
+                fpj.invalid_records,
+                fpj.error_message as error,
+                fpj.started_at,
+                fpj.completed_at,
+                fpj.created_at
+            FROM warehouse.fact_processing_job fpj
+            WHERE fpj.job_id = :job_id
+            """
+            
+            result = await db_service.execute_query(query, {"job_id": job_id})
+            
+            if result:
+                job = result[0]
+                progress = 100 if job['status'] in ['completed', 'failed'] else 50 if job['status'] == 'processing' else 0
+                
+                return {
+                    'job_id': job['job_id'],
+                    'filename': job['filename'],
+                    'action': job['action'],
+                    'status': job['status'],
+                    'progress': progress,
+                    'message': f"Status: {job['status']}",
+                    'result': {
+                        'total_records': job['total_records'] or 0,
+                        'valid_records': job['valid_records'] or 0,
+                        'invalid_records': job['invalid_records'] or 0
+                    } if job['status'] == 'completed' else None,
+                    'error': job['error'],
+                    'created_at': job['created_at'].isoformat() if job['created_at'] else None,
+                    'updated_at': (job['completed_at'] or job['started_at'] or job['created_at']).isoformat() if any([job['completed_at'], job['started_at'], job['created_at']]) else None
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get job from database: {e}")
             return None
     
-    def update_job(self, job_id: str, updates: Dict[str, Any]) -> bool:
-        """Update a job with new data"""
-        with self.lock:
-            if job_id in self.jobs:
-                # Convert numpy types to native Python types
-                clean_updates = convert_numpy_types(updates)
-                self.jobs[job_id].update(clean_updates)
-                self.jobs[job_id]['updated_at'] = datetime.now().isoformat()
-                return True
+    async def update_job(self, job_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a job in database"""
+        try:
+            db_service = await get_database_service()
+            
+            # Map updates to database columns
+            db_updates = {}
+            if 'status' in updates:
+                db_updates['status'] = updates['status']
+            if 'error' in updates:
+                db_updates['error_message'] = updates['error']
+            if 'result' in updates and updates['result']:
+                result = updates['result']
+                if 'total_records' in result:
+                    db_updates['total_records'] = result['total_records']
+                if 'valid_records' in result:
+                    db_updates['valid_records'] = result['valid_records']
+                if 'invalid_records' in result:
+                    db_updates['invalid_records'] = result['invalid_records']
+                if 'avg_quality_score' in result:
+                    db_updates['avg_quality_score'] = result['avg_quality_score']
+                if 'success_rate' in result:
+                    db_updates['success_rate'] = result['success_rate']
+            
+            if updates.get('status') == 'completed':
+                db_updates['completed_at'] = 'NOW()'
+            elif updates.get('status') == 'processing' and 'started_at' not in db_updates:
+                db_updates['started_at'] = 'NOW()'
+            
+            if db_updates:
+                # Build dynamic update query
+                set_clauses = []
+                params = {"job_id": job_id}
+                
+                for key, value in db_updates.items():
+                    if value == 'NOW()':
+                        set_clauses.append(f"{key} = NOW()")
+                    else:
+                        param_key = f"update_{key}"
+                        set_clauses.append(f"{key} = :{param_key}")
+                        params[param_key] = value
+                
+                query = f"""
+                UPDATE warehouse.fact_processing_job 
+                SET {', '.join(set_clauses)}
+                WHERE job_id = :job_id
+                """
+                
+                await db_service.execute_query(query, params)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update job in database: {e}")
             return False
     
-    def list_jobs(self) -> List[Dict[str, Any]]:
-        """Get all jobs, newest first"""
-        with self.lock:
-            jobs = list(self.jobs.values())
-            # Sort by created_at descending
-            jobs.sort(key=lambda x: x['created_at'], reverse=True)
-            # Convert numpy types before returning
-            return [convert_numpy_types(job.copy()) for job in jobs]
+    async def list_jobs(self) -> List[Dict[str, Any]]:
+        """Get all jobs from database, newest first"""
+        try:
+            db_service = await get_database_service()
+            
+            query = """
+            SELECT 
+                fpj.job_id,
+                fpj.job_name as filename,
+                fpj.job_type as action,
+                fpj.status,
+                fpj.total_records,
+                fpj.valid_records,
+                fpj.invalid_records,
+                fpj.error_message as error,
+                fpj.started_at,
+                fpj.completed_at,
+                fpj.created_at
+            FROM warehouse.fact_processing_job fpj
+            ORDER BY fpj.created_at DESC
+            LIMIT 100
+            """
+            
+            results = await db_service.execute_query(query)
+            
+            jobs = []
+            for job in results:
+                progress = 100 if job['status'] in ['completed', 'failed'] else 50 if job['status'] == 'processing' else 0
+                
+                jobs.append({
+                    'job_id': job['job_id'],
+                    'filename': job['filename'],
+                    'action': job['action'],
+                    'status': job['status'],
+                    'progress': progress,
+                    'message': f"Status: {job['status']}",
+                    'result': {
+                        'total_records': job['total_records'] or 0,
+                        'valid_records': job['valid_records'] or 0,
+                        'invalid_records': job['invalid_records'] or 0
+                    } if job['status'] == 'completed' else None,
+                    'error': job['error'],
+                    'created_at': job['created_at'].isoformat() if job['created_at'] else None,
+                    'updated_at': (job['completed_at'] or job['started_at'] or job['created_at']).isoformat() if any([job['completed_at'], job['started_at'], job['created_at']]) else None
+                })
+            
+            return jobs
+            
+        except Exception as e:
+            logger.error(f"Failed to list jobs from database: {e}")
+            return []
     
-    def delete_job(self, job_id: str) -> bool:
-        """Delete a job"""
-        with self.lock:
-            if job_id in self.jobs:
-                del self.jobs[job_id]
-                return True
+    async def delete_job(self, job_id: str) -> bool:
+        """Delete a job from database"""
+        try:
+            db_service = await get_database_service()
+            
+            query = "DELETE FROM warehouse.fact_processing_job WHERE job_id = :job_id"
+            await db_service.execute_query(query, {"job_id": job_id})
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete job from database: {e}")
             return False
     
-    def get_job_count(self) -> int:
-        """Get total number of jobs"""
-        with self.lock:
-            return len(self.jobs)
+    async def get_job_count(self) -> int:
+        """Get total number of jobs from database"""
+        try:
+            db_service = await get_database_service()
+            
+            query = "SELECT COUNT(*) as count FROM warehouse.fact_processing_job"
+            result = await db_service.execute_query(query)
+            
+            return result[0]['count'] if result else 0
+            
+        except Exception as e:
+            logger.error(f"Failed to get job count from database: {e}")
+            return 0
 
-# Global in-memory database instance
-job_db = InMemoryJobDB()
+# Global database job service instance
+job_db = DatabaseJobService()
+
+# Helper functions for async database operations in sync contexts
+def update_job_sync(job_id: str, updates: Dict[str, Any]):
+    """Helper to update job from synchronous context"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're in an async context, schedule the actual async DB update
+            asyncio.create_task(job_db.update_job(job_id, updates))
+        else:
+            # We're in a sync context, run the coroutine directly
+            loop.run_until_complete(job_db.update_job(job_id, updates))
+    except Exception as e:
+        logger.error(f"Failed to update job {job_id}: {e}")
+
+def get_job_sync(job_id: str) -> Optional[Dict[str, Any]]:
+    """Helper to get job from synchronous context"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # This is more complex in running loop, for now just log
+            logger.warning(f"Cannot synchronously get job {job_id} from running async loop")
+            return None
+        else:
+            return loop.run_until_complete(job_db.get_job(job_id))
+    except Exception as e:
+        logger.error(f"Failed to get job {job_id}: {e}")
+        return None
+
+async def save_validation_results_to_database(job_id: str, validation_results: List, stats: Dict, total_records: int, valid_records: int, invalid_records: int):
+    """Save validation results and quality metrics to the database"""
+    try:
+        db_service = await get_database_service()
+        if not db_service:
+            logger.warning(f"No database service available to save validation results for job {job_id}")
+            return
+
+        # Ensure auxiliary summary table exists (idempotent CREATE)
+        try:
+            await db_service.execute_query("""
+            CREATE TABLE IF NOT EXISTS warehouse.fact_rule_validation_summary (
+                summary_id UUID PRIMARY KEY,
+                job_id UUID REFERENCES warehouse.fact_processing_job(job_id),
+                rule_name TEXT,
+                rule_type TEXT,
+                field_name TEXT,
+                records_checked BIGINT,
+                records_passed BIGINT,
+                records_failed BIGINT,
+                success_rate DOUBLE PRECISION,
+                error_details TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            """)
+        except Exception as table_e:
+            logger.debug(f"Rule summary table creation skipped/failed (may already exist): {table_e}")
+        
+        # Calculate quality metrics
+        success_rate = (valid_records / total_records * 100) if total_records > 0 else 0
+        avg_quality_score = stats.get('avg_quality_score', 0) if isinstance(stats, dict) else 0
+        
+        # Save rule-level summaries into summary table (not the per-record fact table schema)
+        rule_summary_insert = """
+        INSERT INTO warehouse.fact_rule_validation_summary (
+            summary_id, job_id, rule_name, rule_type, field_name,
+            records_checked, records_passed, records_failed, success_rate, error_details
+        ) VALUES (
+            :summary_id, :job_id, :rule_name, :rule_type, :field_name,
+            :records_checked, :records_passed, :records_failed, :success_rate, :error_details
+        )
+        ON CONFLICT (summary_id) DO NOTHING
+        """
+        for i, result in enumerate(validation_results):
+            if hasattr(result, '__dict__'):
+                result_dict = result.__dict__
+            else:
+                result_dict = result if isinstance(result, dict) else {}
+            try:
+                await db_service.execute_query(rule_summary_insert, {
+                    "summary_id": str(uuid.uuid4()),
+                    "job_id": job_id,
+                    "rule_name": result_dict.get('rule_name', f'Rule_{i+1}'),
+                    "rule_type": result_dict.get('rule_type', 'validation'),
+                    "field_name": result_dict.get('field_name', ''),
+                    "records_checked": int(result_dict.get('records_checked', total_records) or 0),
+                    "records_passed": int(result_dict.get('records_passed', valid_records) or 0),
+                    "records_failed": int(result_dict.get('records_failed', invalid_records) or 0),
+                    "success_rate": float(result_dict.get('success_rate', success_rate) or 0.0),
+                    "error_details": result_dict.get('error_details', '')
+                })
+            except Exception as rule_e:
+                logger.debug(f"Skipping rule summary insert (job {job_id}): {rule_e}")
+        
+        # Save quality metrics
+        metrics = [
+            {"name": "Total Records", "value": total_records, "type": "count"},
+            {"name": "Valid Records", "value": valid_records, "type": "count"},
+            {"name": "Invalid Records", "value": invalid_records, "type": "count"},
+            {"name": "Success Rate", "value": success_rate, "type": "percentage"},
+            {"name": "Data Quality Score", "value": avg_quality_score, "type": "score"}
+        ]
+        
+        for metric in metrics:
+            # Adapt insert to actual schema: field_name (not nullable), metric_type, metric_value, metric_details JSON.
+            # We'll store overall job-level metrics using field_name = '__job__' and metric_details containing the name.
+            metric_query = """
+            INSERT INTO warehouse.fact_quality_metric (
+                metric_id, job_id, field_name, metric_type, metric_value, metric_details
+            ) VALUES (
+                :metric_id, :job_id, :field_name, :metric_type, :metric_value, :metric_details
+            )
+            ON CONFLICT (metric_id) DO NOTHING
+            """
+
+            details = {
+                "display_name": metric["name"],
+                "category": "job_summary",
+            }
+            try:
+                await db_service.execute_query(metric_query, {
+                    "metric_id": str(uuid.uuid4()),
+                    "job_id": job_id,
+                    "field_name": "__job__",
+                    "metric_type": metric["type"],
+                    "metric_value": float(metric["value"] or 0.0),
+                    "metric_details": json.dumps(details)
+                })
+            except Exception as m_e:
+                logger.debug(f"Skipping metric insert (job {job_id}, {metric['name']}): {m_e}")
+        
+        logger.info(f"Saved validation results and metrics for job {job_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save validation results for job {job_id}: {e}")
 
 # Legacy compatibility
 job_status: Dict[str, Dict[str, Any]] = {}
@@ -256,7 +595,7 @@ async def upload_file(
     job_id = str(uuid.uuid4())
     
     # Create job entry in database
-    job_data = job_db.create_job(job_id, file.filename, action)
+    job_data = await job_db.create_job(job_id, file.filename, action)
     
     # Save uploaded file temporarily
     temp_dir = Path("temp_uploads")
@@ -270,7 +609,7 @@ async def upload_file(
             buffer.write(content)
         
         # Update job with file path
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "file_path": str(file_path),
             "message": "File saved, processing queued"
         })
@@ -288,7 +627,7 @@ async def upload_file(
         return {"job_id": job_id, "status": "accepted", "message": "Processing started"}
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -317,7 +656,7 @@ async def upload_multiple_files(
             continue
 
         job_id = str(uuid.uuid4())
-        job_db.create_job(job_id, file.filename, action)
+        await job_db.create_job(job_id, file.filename, action)
 
         file_path = temp_dir / f"{job_id}_{file.filename}"
         try:
@@ -325,7 +664,7 @@ async def upload_multiple_files(
             with open(file_path, "wb") as buffer:
                 buffer.write(content)
 
-            job_db.update_job(job_id, {
+            update_job_sync(job_id, {
                 "file_path": str(file_path),
                 "message": "File saved, processing queued"
             })
@@ -337,12 +676,12 @@ async def upload_multiple_files(
             elif action == "pipeline":
                 background_tasks.add_task(process_full_pipeline, job_id, str(file_path))
             else:
-                job_db.update_job(job_id, {"status": "failed", "error": f"Invalid action: {action}"})
+                update_job_sync(job_id, {"status": "failed", "error": f"Invalid action: {action}"})
                 continue
 
             results.append({"job_id": job_id, "status": "accepted", "message": "Processing started"})
         except Exception as e:
-            job_db.update_job(job_id, {"status": "failed", "error": str(e)})
+            update_job_sync(job_id, {"status": "failed", "error": str(e)})
             results.append({"job_id": job_id, "status": "failed", "message": str(e)})
 
     if not results:
@@ -363,7 +702,7 @@ async def start_api_streaming(
     job_id = str(uuid.uuid4())
     
     # Create job entry
-    job_db.create_job(job_id, f"API Stream: {request.api_url}", request.action)
+    await job_db.create_job(job_id, f"API Stream: {request.api_url}", request.action)
     
     # Start background streaming task
     background_tasks.add_task(
@@ -380,31 +719,22 @@ async def start_api_streaming(
 async def process_validation(job_id: str, file_path: str):
     """Background task for file validation"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
-            "progress": 10,
+        update_job_sync(job_id, {
+            "status": "processing",
+            "progress": 5,
             "message": "Starting validation..."
         })
         
         # Load and validate file
         df = file_processor.load_data_from_file(file_path)
-        job_db.update_job(job_id, {
-            "progress": 30,
-            "message": f"Loaded {len(df)} records"
-        })
+        update_job_sync(job_id, {"progress": 20, "message": f"Loaded {len(df)} records"})
         
         records = file_processor.convert_dataframe_to_records(df, clean_data=True)
-        job_db.update_job(job_id, {
-            "progress": 50,
-            "message": "Running intelligent validation..."
-        })
+        update_job_sync(job_id, {"progress": 40, "message": "Running intelligent validation..."})
         
-        # Validate data
+        # Validate data (in memory)
         validation_results = data_validator.validate_batch(records, file_path)
-        job_db.update_job(job_id, {
-            "progress": 80,
-            "message": "Generating report..."
-        })
+        update_job_sync(job_id, {"progress": 70, "message": "Persisting validation results..."})
         
         # Generate statistics
         stats = data_validator.get_statistics()
@@ -424,7 +754,16 @@ async def process_validation(job_id: str, file_path: str):
                 output_format="html"
             )
         
-        job_db.update_job(job_id, {
+        # Bulk persist validation results using optimized path
+        try:
+            db_service = await get_database_service()
+            await db_service.bulk_store_validation_results(job_id, validation_results)
+        except Exception as persist_err:
+            logger.error(f"Bulk persistence failed for job {job_id}: {persist_err}")
+            # Continue; job still considered validated.
+        
+        numeric_success_rate = round((len(good_data) / len(records) * 100), 2) if records else 0.0
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "Validation completed successfully",
@@ -432,7 +771,7 @@ async def process_validation(job_id: str, file_path: str):
                 "total_records": len(records),
                 "valid_records": len(good_data),
                 "invalid_records": len(bad_data),
-                "success_rate": f"{(len(good_data) / len(records) * 100):.2f}%" if records else "0%",
+                "success_rate": numeric_success_rate,
                 "statistics": stats,
                 "report_path": str(report_path) if report_path else None,
                 "schema_info": data_validator.get_schema_info() if hasattr(data_validator, 'get_schema_info') else None
@@ -440,7 +779,7 @@ async def process_validation(job_id: str, file_path: str):
         })
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -448,8 +787,8 @@ async def process_validation(job_id: str, file_path: str):
 async def process_kafka(job_id: str, file_path: str, topic: str = "data_ingestion_api"):
     """Background task for Kafka sending"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
+        update_job_sync(job_id, {
+            "status": "processing",
             "progress": 10,
             "message": "Starting Kafka processing..."
         })
@@ -461,7 +800,7 @@ async def process_kafka(job_id: str, file_path: str, topic: str = "data_ingestio
             validate_before_send=True
         )
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "Data sent to Kafka successfully",
@@ -469,7 +808,7 @@ async def process_kafka(job_id: str, file_path: str, topic: str = "data_ingestio
         })
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -477,8 +816,8 @@ async def process_kafka(job_id: str, file_path: str, topic: str = "data_ingestio
 async def process_full_pipeline(job_id: str, file_path: str, topic: str = "data_ingestion_api"):
     """Background task for full pipeline"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
+        update_job_sync(job_id, {
+            "status": "processing",
             "progress": 10,
             "message": "Starting full pipeline..."
         })
@@ -495,7 +834,7 @@ async def process_full_pipeline(job_id: str, file_path: str, topic: str = "data_
             output_dir=output_dir
         )
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "Full pipeline completed successfully",
@@ -503,7 +842,7 @@ async def process_full_pipeline(job_id: str, file_path: str, topic: str = "data_
         })
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -511,8 +850,8 @@ async def process_full_pipeline(job_id: str, file_path: str, topic: str = "data_
 async def process_api_streaming(job_id: str, api_url: str, action: str, quality_threshold: float, timeout_seconds: int):
     """Background task for API streaming"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
+        update_job_sync(job_id, {
+            "status": "processing",
             "progress": 10,
             "message": "Connecting to API..."
         })
@@ -527,7 +866,7 @@ async def process_api_streaming(job_id: str, api_url: str, action: str, quality_
         output_dir = f"api_output/{job_id}"
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 20,
             "message": "Starting data stream..."
         })
@@ -539,13 +878,13 @@ async def process_api_streaming(job_id: str, api_url: str, action: str, quality_
             quality_threshold=quality_threshold,
             timeout_seconds=timeout_seconds,
             output_dir=output_dir,
-            progress_callback=lambda progress, message: job_db.update_job(job_id, {
+            progress_callback=lambda progress, message: update_job_sync(job_id, {
                 "progress": 20 + int(progress * 0.7),  # 20-90% for streaming
                 "message": message
             })
         )
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "API streaming completed successfully",
@@ -553,7 +892,7 @@ async def process_api_streaming(job_id: str, api_url: str, action: str, quality_
         })
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -561,7 +900,7 @@ async def process_api_streaming(job_id: str, api_url: str, action: str, quality_
 @app.get("/api/status/{job_id}")
 async def get_job_status(job_id: str):
     """Get job status and progress"""
-    job = job_db.get_job(job_id)
+    job = await job_db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -570,7 +909,7 @@ async def get_job_status(job_id: str):
 @app.get("/api/jobs")
 async def list_jobs():
     """List all jobs"""
-    jobs = job_db.list_jobs()
+    jobs = await job_db.list_jobs()
     return {
         "jobs": jobs,
         "count": len(jobs)
@@ -579,7 +918,7 @@ async def list_jobs():
 @app.get("/api/recent-validations")
 async def get_recent_validations(limit: int = 5):
     """Get recent validation jobs for dashboard display"""
-    jobs = job_db.list_jobs()
+    jobs = await job_db.list_jobs()
     
     # Filter only validation jobs and limit results
     recent_validations = []
@@ -639,7 +978,7 @@ def format_timestamp(timestamp_str: str) -> str:
 @app.delete("/api/jobs/{job_id}")
 async def delete_job(job_id: str):
     """Delete a job and its files"""
-    job = job_db.get_job(job_id)
+    job = await job_db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -655,9 +994,12 @@ async def delete_job(job_id: str):
             shutil.rmtree(output_dir)
         
         # Remove job from database
-        job_db.delete_job(job_id)
+        success = await job_db.delete_job(job_id)
         
-        return {"message": "Job deleted successfully"}
+        if success:
+            return {"message": "Job deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete job from database")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete job: {str(e)}")
@@ -665,7 +1007,7 @@ async def delete_job(job_id: str):
 @app.get("/api/download/{job_id}/{file_type}")
 async def download_file(job_id: str, file_type: str):
     """Download generated files (report, data, etc.)"""
-    job = job_db.get_job(job_id)
+    job = await job_db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
@@ -695,7 +1037,7 @@ async def download_file(job_id: str, file_type: str):
 @app.get("/api/quarantine")
 async def get_quarantined_items():
     """Get all quarantined items from completed jobs"""
-    jobs = job_db.list_jobs()
+    jobs = await job_db.list_jobs()
     quarantined_items = []
     
     for job in jobs:
@@ -712,6 +1054,165 @@ async def get_quarantined_items():
             })
     
     return {"quarantined_items": quarantined_items, "count": len(quarantined_items)}
+
+@app.get("/api/reports")
+async def get_reports():
+    """Get all reports from database"""
+    try:
+        # Initialize reporter with database service
+        db_service = await get_database_service()
+        reporter = DataQualityReporter(database_service=db_service)
+        
+        # Get job data from database
+        job_data = await reporter.get_job_data_from_database()
+        validation_results = await reporter.get_validation_results_from_database()
+        quality_metrics = await reporter.get_quality_metrics_from_database()
+        
+        reports = []
+        for job in job_data:
+            # Get job-specific validation results and metrics
+            job_validations = [v for v in validation_results if v.get('job_id') == job.get('job_id')]
+            job_metrics = [m for m in quality_metrics if m.get('job_id') == job.get('job_id')]
+            
+            report = {
+                "id": job.get('job_id'),
+                "name": job.get('job_name', 'Unknown Job'),
+                "type": job.get('job_type', 'validation'),
+                "status": job.get('status', 'unknown'),
+                "created_at": job.get('created_at').isoformat() if job.get('created_at') else None,
+                "completed_at": job.get('completed_at').isoformat() if job.get('completed_at') else None,
+                "total_records": job.get('total_records', 0),
+                "valid_records": job.get('valid_records', 0),
+                "invalid_records": job.get('invalid_records', 0),
+                "success_rate": job.get('success_rate', 0) or 0,
+                "avg_quality_score": job.get('avg_quality_score', 0) or 0,
+                "validation_count": len(job_validations),
+                "metrics_count": len(job_metrics),
+                "source_name": job.get('source_name', ''),
+                "source_type": job.get('source_type', ''),
+                "error_message": job.get('error_message', '')
+            }
+            reports.append(report)
+        
+        # Sort by created_at descending
+        reports.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return {
+            "reports": reports,
+            "count": len(reports),
+            "summary": {
+                "total_jobs": len(job_data),
+                "completed_jobs": len([j for j in job_data if j.get('status') == 'completed']),
+                "failed_jobs": len([j for j in job_data if j.get('status') == 'failed']),
+                "total_validations": len(validation_results),
+                "total_metrics": len(quality_metrics)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get reports: {e}")
+        return {
+            "reports": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+@app.get("/api/reports/{job_id:uuid}")
+async def get_report(job_id: uuid.UUID):
+    """Get detailed report for a specific job"""
+    try:
+        job_id_str = str(job_id)
+        db_service = await get_database_service()
+        reporter = DataQualityReporter(database_service=db_service)
+
+        job_data = await reporter.get_job_data_from_database(job_id_str)
+        validation_results = await reporter.get_validation_results_from_database(job_id_str)
+        quality_metrics = await reporter.get_quality_metrics_from_database(job_id_str)
+
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        job = job_data[0]
+
+        report = {
+            "job_info": {
+                "job_id": job.get('job_id'),
+                "job_name": job.get('job_name'),
+                "job_type": job.get('job_type'),
+                "status": job.get('status'),
+                "created_at": job.get('created_at').isoformat() if job.get('created_at') else None,
+                "started_at": job.get('started_at').isoformat() if job.get('started_at') else None,
+                "completed_at": job.get('completed_at').isoformat() if job.get('completed_at') else None,
+                "source_name": job.get('source_name'),
+                "source_type": job.get('source_type'),
+                "source_format": job.get('source_format'),
+                "error_message": job.get('error_message')
+            },
+            "statistics": {
+                "total_records": job.get('total_records', 0),
+                "valid_records": job.get('valid_records', 0),
+                "invalid_records": job.get('invalid_records', 0),
+                "quarantined_records": job.get('quarantined_records', 0),
+                "success_rate": job.get('success_rate', 0) or 0,
+                "avg_quality_score": job.get('avg_quality_score', 0) or 0
+            },
+            "validation_results": [
+                {
+                    "result_id": v.get('result_id'),
+                    "rule_name": v.get('rule_name'),
+                    "rule_type": v.get('rule_type'),
+                    "field_name": v.get('field_name'),
+                    "records_checked": v.get('records_checked', 0),
+                    "records_passed": v.get('records_passed', 0),
+                    "records_failed": v.get('records_failed', 0),
+                    "success_rate": v.get('success_rate', 0) or 0,
+                    "error_details": v.get('error_details'),
+                    "validated_at": v.get('validated_at').isoformat() if v.get('validated_at') else None
+                } for v in validation_results
+            ],
+            "quality_metrics": [
+                {
+                    "metric_id": m.get('metric_id'),
+                    "metric_name": m.get('metric_name'),  # backward compatibility alias
+                    "field_name": m.get('field_name'),
+                    "metric_value": m.get('metric_value', 0) or 0,
+                    "metric_type": m.get('metric_type'),
+                    "calculated_at": m.get('calculated_at').isoformat() if m.get('calculated_at') else None,
+                    "details": m.get('details')
+                } for m in quality_metrics
+            ]
+        }
+        
+        return report
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get report for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+@app.get("/api/reports/metrics")
+async def get_global_quality_metrics(days: int = 30):
+    """Return aggregated quality metrics across jobs for charts (replaces using a slug as job_id)."""
+    try:
+        db_service = await get_database_service()
+        # Aggregate over fact_quality_metric job-level metrics (field_name='__job__')
+        query = """
+        SELECT 
+            DATE(fqm.created_at) as date,
+            AVG(CASE WHEN fqm.metric_type='percentage' THEN fqm.metric_value END) as avg_percentage,
+            AVG(CASE WHEN fqm.metric_type='score' THEN fqm.metric_value END) as avg_score,
+            COUNT(*) as metric_points
+        FROM warehouse.fact_quality_metric fqm
+        WHERE fqm.created_at >= NOW() - INTERVAL :days || ' days'
+          AND fqm.field_name='__job__'
+        GROUP BY DATE(fqm.created_at)
+        ORDER BY date
+        """
+        rows = await db_service.execute_query(query, {"days": days})
+        return {"metrics": rows or []}
+    except Exception as e:
+        logger.error(f"Global metrics query failed: {e}")
+        return {"metrics": []}
 
 @app.get("/api/statistics")
 async def get_statistics():
@@ -917,7 +1418,7 @@ async def trigger_warehouse_etl(
             buffer.write(content)
         
         # Create in-memory job entry for immediate response
-        job_db.create_job(job_id, file.filename, "warehouse_etl")
+        await job_db.create_job(job_id, file.filename, "warehouse_etl")
         
         # Start background ETL process
         background_tasks.add_task(
@@ -945,7 +1446,7 @@ async def process_warehouse_etl(job_id: str, file_path: str, source_name: str,
     """Background task for warehouse ETL processing"""
     try:
         # Update job status
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "processing",
             "message": "Starting ETL process..."
         })
@@ -960,7 +1461,7 @@ async def process_warehouse_etl(job_id: str, file_path: str, source_name: str,
         )
         
         # Update job with results
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "completed",
             "message": "ETL process completed successfully",
             "result": result,
@@ -971,7 +1472,7 @@ async def process_warehouse_etl(job_id: str, file_path: str, source_name: str,
         
     except Exception as e:
         logger.error(f"Warehouse ETL failed for job {job_id}: {str(e)}")
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed", 
             "error": str(e)
         })
@@ -1000,7 +1501,7 @@ async def process_dynamic_schema(
         job_id = str(uuid.uuid4())
         
         # Create job entry
-        job_db.create_job(job_id, f"Dynamic Schema: {request.source_name}", "dynamic_schema")
+        await job_db.create_job(job_id, f"Dynamic Schema: {request.source_name}", "dynamic_schema")
         
         # Start background processing
         background_tasks.add_task(
@@ -1033,8 +1534,8 @@ async def process_dynamic_schema_background(
 ):
     """Background task for dynamic schema processing"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
+        update_job_sync(job_id, {
+            "status": "processing",
             "progress": 10,
             "message": "Starting dynamic schema detection..."
         })
@@ -1042,7 +1543,7 @@ async def process_dynamic_schema_background(
         # Get ETL service
         etl_service = await get_etl_service()
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 30,
             "message": "Inferring schema from data..."
         })
@@ -1056,7 +1557,7 @@ async def process_dynamic_schema_background(
             storage_method=storage_method
         )
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "Dynamic schema processing completed",
@@ -1067,7 +1568,7 @@ async def process_dynamic_schema_background(
         
     except Exception as e:
         logger.error(f"Dynamic schema processing failed for job {job_id}: {str(e)}")
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -1203,7 +1704,7 @@ async def upload_file_dynamic_schema(
     job_id = str(uuid.uuid4())
     
     # Create job entry
-    job_data = job_db.create_job(job_id, file.filename, "upload_dynamic")
+    job_data = await job_db.create_job(job_id, file.filename, "upload_dynamic")
     
     # Save uploaded file temporarily
     temp_dir = Path("temp_uploads")
@@ -1217,7 +1718,7 @@ async def upload_file_dynamic_schema(
             buffer.write(content)
         
         # Update job with file path
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "file_path": str(file_path),
             "message": "File saved, processing with dynamic schema detection..."
         })
@@ -1239,7 +1740,7 @@ async def upload_file_dynamic_schema(
         }
         
     except Exception as e:
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -1253,8 +1754,8 @@ async def process_file_dynamic_schema(
 ):
     """Background task for processing file with dynamic schema"""
     try:
-        job_db.update_job(job_id, {
-            "status": "running",
+        update_job_sync(job_id, {
+            "status": "processing",
             "progress": 10,
             "message": "Loading file data..."
         })
@@ -1263,7 +1764,7 @@ async def process_file_dynamic_schema(
         df = file_processor.load_data_from_file(file_path)
         records = file_processor.convert_dataframe_to_records(df, clean_data=True)
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 30,
             "message": f"Loaded {len(records)} records, inferring schema..."
         })
@@ -1280,7 +1781,7 @@ async def process_file_dynamic_schema(
             storage_method=storage_method
         )
         
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "progress": 100,
             "status": "completed",
             "message": "Dynamic schema processing completed",
@@ -1291,7 +1792,7 @@ async def process_file_dynamic_schema(
         
     except Exception as e:
         logger.error(f"Dynamic file processing failed for job {job_id}: {str(e)}")
-        job_db.update_job(job_id, {
+        update_job_sync(job_id, {
             "status": "failed",
             "error": str(e)
         })
@@ -1303,12 +1804,12 @@ async def get_dashboard_stats():
     try:
         db_service = await get_database_service()
         
-        # Get processing job statistics
+        # Get processing job statistics (fixed column names)
         query = """
         SELECT 
             status,
             COUNT(*) as count,
-            AVG(EXTRACT(EPOCH FROM (end_time - start_time))) as avg_duration
+            AVG(processing_duration_seconds) as avg_duration
         FROM warehouse.fact_processing_job 
         WHERE created_at >= NOW() - INTERVAL '30 days'
         GROUP BY status
@@ -1316,50 +1817,55 @@ async def get_dashboard_stats():
         
         job_stats = await db_service.execute_query(query)
         
-        # Get data quality metrics
+        # Get data quality metrics (fixed table and column names)
         quality_query = """
         SELECT 
-            DATE(created_at) as date,
-            AVG(completeness_score) as completeness,
-            AVG(validity_score) as validity,
-            AVG(consistency_score) as consistency,
-            COUNT(*) as records_processed
-        FROM warehouse.fact_quality_metric 
-        WHERE created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
+            DATE(fpj.created_at) as date,
+            AVG(fpj.avg_quality_score) as completeness,
+            AVG(fpj.success_rate) as validity,
+            AVG(fpj.avg_quality_score) as consistency,
+            SUM(fpj.total_records) as records_processed
+        FROM warehouse.fact_processing_job fpj
+        WHERE fpj.created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY DATE(fpj.created_at)
         ORDER BY date
         """
         
         quality_stats = await db_service.execute_query(quality_query)
         
-        # Get error distribution
+        # Get error distribution (fixed to use existing tables)
         error_query = """
         SELECT 
-            error_type,
+            'Processing Errors' as error_type,
             COUNT(*) as count
-        FROM warehouse.fact_validation_result 
-        WHERE is_valid = false
+        FROM warehouse.fact_processing_job 
+        WHERE status = 'failed'
         AND created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY error_type
+        UNION ALL
+        SELECT 
+            'Invalid Records' as error_type,
+            SUM(invalid_records) as count
+        FROM warehouse.fact_processing_job 
+        WHERE created_at >= NOW() - INTERVAL '30 days'
         ORDER BY count DESC
         LIMIT 10
         """
         
         error_stats = await db_service.execute_query(error_query)
         
-        # Convert to dictionaries
-        job_stats_list = [dict(row) for row in job_stats] if job_stats else []
-        quality_stats_list = [dict(row) for row in quality_stats] if quality_stats else []
-        error_stats_list = [dict(row) for row in error_stats] if error_stats else []
+        # Convert to dictionaries (database service now returns dicts)
+        job_stats_list = job_stats if job_stats else []
+        quality_stats_list = quality_stats if quality_stats else []
+        error_stats_list = error_stats if error_stats else []
         
         return {
             "job_statistics": job_stats_list,
             "quality_trends": quality_stats_list,
             "error_distribution": error_stats_list,
             "summary": {
-                "total_jobs": sum(row.get("count", 0) for row in job_stats_list),
-                "avg_quality_score": sum(row.get("completeness", 0) + row.get("validity", 0) + row.get("consistency", 0) for row in quality_stats_list) / (3 * len(quality_stats_list)) if quality_stats_list else 0,
-                "total_errors": sum(row.get("count", 0) for row in error_stats_list)
+                "total_jobs": sum(row.get("count", 0) or 0 for row in job_stats_list),
+                "avg_quality_score": min(100, max(0, (sum((row.get("completeness") or 0) + (row.get("validity") or 0) + (row.get("consistency") or 0) for row in quality_stats_list) / (3 * len(quality_stats_list)) * 100) if quality_stats_list else 0)),
+                "total_errors": sum(row.get("count", 0) or 0 for row in error_stats_list)
             }
         }
         
@@ -1383,23 +1889,23 @@ async def get_processing_timeline(days: int = 7):
     try:
         db_service = await get_database_service()
         
-        query = """
+        query = f"""
         SELECT 
             DATE_TRUNC('hour', created_at) as timestamp,
             status,
             COUNT(*) as count,
-            AVG(records_processed) as avg_records,
-            SUM(records_processed) as total_records
+            AVG(total_records) as avg_records,
+            SUM(total_records) as total_records
         FROM warehouse.fact_processing_job 
-        WHERE created_at >= NOW() - INTERVAL %s
+        WHERE created_at >= NOW() - INTERVAL '{days} days'
         GROUP BY DATE_TRUNC('hour', created_at), status
         ORDER BY timestamp
         """
         
-        timeline_data = await db_service.execute_query(query, (f"{days} days",))
+        timeline_data = await db_service.execute_query(query)
         
         return {
-            "timeline": [dict(row) for row in timeline_data] if timeline_data else [],
+            "timeline": timeline_data if timeline_data else [],
             "period_days": days
         }
         
@@ -1421,25 +1927,29 @@ async def get_data_sources_stats():
         SELECT 
             ds.source_name,
             ds.source_type,
-            COUNT(fpj.id) as total_jobs,
+            COUNT(fpj.job_id) as total_jobs,
             SUM(CASE WHEN fpj.status = 'completed' THEN 1 ELSE 0 END) as successful_jobs,
-            AVG(fpj.records_processed) as avg_records,
+            AVG(fpj.total_records) as avg_records,
             MAX(fpj.created_at) as last_processed
-        FROM dim_data_source ds
-        LEFT JOIN fact_processing_job fpj ON ds.id = fpj.data_source_id
+        FROM warehouse.dim_data_source ds
+        LEFT JOIN warehouse.fact_processing_job fpj ON ds.source_id = fpj.source_id
         WHERE fpj.created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY ds.id, ds.source_name, ds.source_type
+        GROUP BY ds.source_id, ds.source_name, ds.source_type
         ORDER BY total_jobs DESC
         """
         
         sources_data = await db_service.execute_query(query)
         
         return {
-            "data_sources": [dict(row) for row in sources_data]
+            "data_sources": sources_data if sources_data else []
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get data sources stats: {str(e)}")
+        # Return empty data sources if database queries fail
+        logger.error(f"Data sources query failed: {e}")
+        return {
+            "data_sources": []
+        }
 
 @app.get("/api/reports/quality-metrics")
 async def get_quality_metrics(days: int = 30):
@@ -1447,44 +1957,101 @@ async def get_quality_metrics(days: int = 30):
     try:
         db_service = await get_database_service()
         
-        query = """
+        query = f"""
         SELECT 
-            DATE(created_at) as date,
-            metric_name,
-            AVG(metric_value) as avg_value,
-            MIN(metric_value) as min_value,
-            MAX(metric_value) as max_value,
+            DATE(fpj.created_at) as date,
+            'quality_score' as metric_name,
+            AVG(fpj.avg_quality_score * 100) as avg_value,
+            MIN(fpj.avg_quality_score * 100) as min_value,
+            MAX(fpj.avg_quality_score * 100) as max_value,
             COUNT(*) as sample_count
-        FROM fact_quality_metric 
-        WHERE created_at >= NOW() - INTERVAL %s
-        GROUP BY DATE(created_at), metric_name
-        ORDER BY date, metric_name
+        FROM warehouse.fact_processing_job fpj
+        WHERE fpj.created_at >= NOW() - INTERVAL '{days} days'
+        AND fpj.avg_quality_score IS NOT NULL
+        GROUP BY DATE(fpj.created_at)
+        ORDER BY date
         """
         
-        metrics_data = await db_service.execute_query(query, (f"{days} days",))
+        metrics_data = await db_service.execute_query(query)
         
-        # Get validation results distribution
-        validation_query = """
+        # Get validation results distribution from processing jobs
+        validation_query = f"""
         SELECT 
-            validation_rule,
-            SUM(CASE WHEN is_valid THEN 1 ELSE 0 END) as passed,
-            SUM(CASE WHEN NOT is_valid THEN 1 ELSE 0 END) as failed
-        FROM fact_validation_result 
-        WHERE created_at >= NOW() - INTERVAL %s
-        GROUP BY validation_rule
-        ORDER BY (passed + failed) DESC
+            'Successful Validations' as validation_rule,
+            SUM(valid_records) as passed,
+            SUM(invalid_records) as failed
+        FROM warehouse.fact_processing_job
+        WHERE created_at >= NOW() - INTERVAL '{days} days'
+        UNION ALL
+        SELECT 
+            'Quality Threshold Met' as validation_rule,
+            SUM(CASE WHEN avg_quality_score >= 0.8 THEN total_records ELSE 0 END) as passed,
+            SUM(CASE WHEN avg_quality_score < 0.8 THEN total_records ELSE 0 END) as failed
+        FROM warehouse.fact_processing_job
+        WHERE created_at >= NOW() - INTERVAL '{days} days'
+        AND avg_quality_score IS NOT NULL
         """
         
-        validation_data = await db_service.execute_query(validation_query, (f"{days} days",))
+        validation_data = await db_service.execute_query(validation_query)
         
         return {
-            "quality_metrics": [dict(row) for row in metrics_data],
-            "validation_results": [dict(row) for row in validation_data],
+            "quality_metrics": metrics_data if metrics_data else [],
+            "validation_results": validation_data if validation_data else [],
             "period_days": days
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get quality metrics: {str(e)}")
+        # Return empty metrics if database queries fail
+        logger.error(f"Quality metrics query failed: {e}")
+        return {
+            "quality_metrics": [],
+            "validation_results": [],
+            "period_days": days
+        }
+
+# Health check and utility endpoints
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint with database connectivity status"""
+    health_status = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "database": "unknown",
+        "services": {
+            "api": "running",
+            "file_processor": "available"
+        }
+    }
+    
+    try:
+        db_service = await get_database_service()
+        health_status["database"] = "connected"
+        health_status["services"]["database"] = "connected"
+        health_status["services"]["warehouse"] = "available"
+    except Exception as e:
+        health_status["database"] = "unavailable"
+        health_status["services"]["database"] = f"error: {str(e)}"
+        health_status["message"] = "Running in file-only mode"
+    
+    return health_status
+
+@app.post("/api/database/retry")
+async def retry_database_connection():
+    """Reset database availability flag and retry connection"""
+    try:
+        reset_database_availability()
+        db_service = await get_database_service()
+        return {
+            "status": "success",
+            "message": "Database connection restored",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "message": f"Database still unavailable: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
 
 # Serve the React frontend (for production)
 # Create necessary directories and startup

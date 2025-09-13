@@ -1,83 +1,30 @@
 # 🚀 Advanced Data Ingestion & Validation Platform
 
-**A comprehensive, enterprise-grade data ingestion and validation system with real-time analytics, dynamic schema evolution, and interactive visualizations.**
+**A comprehensive, enterprise-grade data ingestion and validation system with real-time analytics, dynamic schema evolution, persistent job tracking, and interactive visualizations.**
 
 ## 🌟 Overview
 
-This platform provides a complete data lifecycle management solution featuring intelligent schema inference, real-time validation, quality analytics, and interactive dashboards. Built with FastAPI, React, Postgr## 📊 Data Processing Outputs
+This platform provides a complete data lifecycle management solution featuring intelligent schema inference, real-time validation, quality analytics, interactive dashboards, and persistent PostgreSQL storage. Built with FastAPI, React, PostgreSQL data warehouse, and Redis for caching, this system handles complex data processing workflows with enterprise reliability.
 
-### File-Based Outputs
-- **`good_data.csv`**: Records meeting quality standards (≥80% quality score)
-- **`high_quality_data.csv`**: Premium quality records (≥90% quality score)  
-- **`quarantine.csv`**: Records requiring manual review
-- **`violations.csv`**: Records with validation errors
+## 🚀 What's New in This Version
 
-### Database Storage
-- **Operational Tables**: Real-time processing results and metadata
-- **Warehouse Tables**: Historical data optimized for analytics and reporting
-- **Schema Registry**: Dynamic schema tracking and evolution history
+### ✅ **Persistent Job Storage**
+- **PostgreSQL Backend**: All jobs, validation results, and quality metrics now stored in database
+- **Survives Restarts**: Complete job history and reports persist after server restarts
+- **Historical Analytics**: Rich reporting from persistent data warehouse
+- **Real Data**: Frontend charts and dashboard now use real database data (no more mock data)
 
-### Report Generation
+### 📊 **Enhanced Reporting**
+- **Database Reports**: New `/api/reports` endpoints for comprehensive reporting
+- **Quality Metrics**: Persistent tracking of data quality over time
+- **Validation History**: Complete audit trail of all validation results
+- **Detailed Job Reports**: Deep dive into specific job performance and results
 
-#### Interactive HTML Reports
-- Quality score distributions and trends over time
-- Field-level validation statistics and error patterns
-- Processing performance metrics and throughput analysis
-- Data completeness analysis by field and batch
-- Error categorization with actionable insights
-
-#### JSON Processing Reports
-```json
-{
-  "processing_summary": {
-    "total_records": 1000,
-    "good_data_count": 850,
-    "high_quality_count": 750,
-    "quarantine_count": 100,
-    "violations_count": 50,
-    "processing_duration": 2.5,
-    "success_rate": 95.0
-  },
-  "quality_metrics": {
-    "overall_score": 0.85,
-    "completeness": 0.92,
-    "validity": 0.88,
-    "consistency": 0.82,
-    "uniqueness": 0.91
-  },
-  "field_analysis": {
-    "customer_id": {"quality_score": 0.99, "errors": 1},
-    "email": {"quality_score": 0.87, "errors": 13},
-    "phone": {"quality_score": 0.92, "errors": 8}
-  }
-}
-```
-
-#### Real-time Dashboards
-- Live processing status with progress tracking
-- Quality trends and historical comparison charts
-- Performance monitoring and system health indicators
-- Alert management and notification system
-- Data source performance analytics
-
-#### Example Output Summary
-```
-📈 PROCESSING SUMMARY
-- Total Records: 1,000
-- Valid Records: 950
-- Success Rate: 95.0%
-- Processing Duration: 2.5s
-
-🎯 QUALITY DISTRIBUTION
-- Excellent: 800 (84.2%)
-- Good: 120 (12.6%)
-- Fair: 25 (2.6%)
-- Poor: 5 (0.5%)
-
-💡 INSIGHTS
-- Excellent data quality with very high success rate
-- Most common issue: postal_code validation
-```fka for scalable, production-ready data processing.
+### 🔧 **Infrastructure Improvements**
+- **Docker Compose**: Complete infrastructure stack (PostgreSQL, Redis, PgAdmin, Kafka)
+- **Database Schema**: Optimized warehouse schema with fact and dimension tables
+- **Production Ready**: Async database operations with proper error handling
+- **API Documentation**: Comprehensive API docs with all new endpoints
 
 ## ✨ Key Features
 
@@ -92,12 +39,20 @@ This platform provides a complete data lifecycle management solution featuring i
 - **Quality Scoring**: Advanced quality metrics with configurable thresholds
 - **Error Categorization**: Detailed error analysis with actionable insights
 - **Batch & Streaming**: Support for both batch uploads and real-time streaming
+- **Persistent Results**: All validation results stored in PostgreSQL warehouse
 
 ### 📊 **Interactive Analytics Dashboard**
 - **Real-time Charts**: Interactive Chart.js visualizations with live data
 - **Quality Trends**: Track data quality metrics over time
 - **Error Distribution**: Visual breakdown of validation issues
 - **Performance Metrics**: Processing throughput and system health monitoring
+- **Database Reports**: Comprehensive reports from persistent job storage
+
+### 💾 **Persistent Job Management**
+- **PostgreSQL Storage**: All jobs, validation results, and quality metrics stored in database
+- **Survives Restarts**: Job history and reports persist after server restarts
+- **Warehouse Schema**: Fact and dimension tables optimized for analytics
+- **Report Generation**: Rich reports from database history
 - **Export Capabilities**: Download reports in multiple formats
 
 ### 🏗️ **Data Warehousing & ETL**
@@ -236,13 +191,22 @@ npm run dev
 ```
 
 #### 3. Access the Application
-- 🌐 **Frontend**: http://localhost:5173 (or displayed port)
+- 🌐 **Frontend**: http://localhost:8080 (or displayed port)
 - 📡 **API Docs**: http://localhost:8000/docs
 - 🗄️ **Database Admin**: http://localhost:8081
 
 #### 4. Upload & Validate Data
 1. Navigate to the **Upload** page
 2. Drag & drop or select your data file (CSV, JSON, Excel, etc.)
+3. Choose validation action (validate, kafka, pipeline)
+4. Monitor progress in real-time
+5. View results in **Reports** and **History** pages with persistent data
+
+#### 5. Explore New Features
+- **Reports Page**: View comprehensive reports from database
+- **Persistent History**: See all jobs survive server restarts
+- **Quality Analytics**: Analyze trends with real historical data
+- **Database Management**: Use PgAdmin to explore warehouse data
 3. Choose validation action (validate, kafka, pipeline)
 4. Monitor progress in real-time
 5. View results in **Reports** and **History** pages
@@ -333,7 +297,112 @@ curl "http://localhost:8000/api/job/YOUR_JOB_ID/status"
 - **Validation Rules**: Configure custom validation thresholds
 - **Quality Settings**: Adjust quality scoring parameters
 - **Export Options**: Choose output formats and destinations
-## 🔧 Validation Rules & Configuration
+## � Data Processing Outputs & Storage
+
+### Persistent Database Storage
+All job data, validation results, and quality metrics are stored in PostgreSQL for persistence across server restarts:
+
+#### Job Storage Tables
+- **`fact_processing_job`**: Complete job history with status, metrics, and timing
+- **`fact_validation_result`**: Detailed validation results for each rule and field
+- **`fact_quality_metric`**: Quality metrics and threshold compliance
+- **`dim_data_source`**: Data source information and metadata
+
+#### File-Based Outputs
+- **`good_data.csv`**: Records meeting quality standards (≥80% quality score)
+- **`high_quality_data.csv`**: Premium quality records (≥90% quality score)  
+- **`quarantine.csv`**: Records requiring manual review
+- **`violations.csv`**: Records with validation errors
+
+### Report Generation
+
+#### Interactive Database Reports
+- Quality score distributions and trends over time from persistent data
+- Field-level validation statistics and error patterns
+- Processing performance metrics and throughput analysis
+- Historical comparison and trend analysis
+- Error categorization with actionable insights
+
+#### JSON Processing Reports
+```json
+{
+  "processing_summary": {
+    "total_records": 1000,
+    "good_data_count": 850,
+    "high_quality_count": 750,
+    "quarantine_count": 100,
+    "violations_count": 50,
+    "processing_duration": 2.5,
+    "success_rate": 95.0
+  },
+  "quality_metrics": {
+    "overall_score": 0.85,
+    "completeness": 0.92,
+    "validity": 0.88,
+    "consistency": 0.82,
+    "uniqueness": 0.91
+  },
+  "field_analysis": {
+    "customer_id": {"quality_score": 0.99, "errors": 1},
+    "email": {"quality_score": 0.87, "errors": 13},
+    "phone": {"quality_score": 0.92, "errors": 8}
+  }
+}
+```
+
+## 📡 API Endpoints
+
+### Core Upload & Validation
+- `POST /api/upload` - Upload and process files (persistent job storage)
+- `POST /api/upload-dynamic` - Upload with dynamic schema detection
+- `GET /api/status/{job_id}` - Get job status and progress from database
+- `GET /api/jobs` - List all jobs from persistent storage
+- `GET /api/recent-validations` - Get recent validation history
+- `DELETE /api/jobs/{job_id}` - Delete a job and its data
+
+### Reports & Analytics (New!)
+- `GET /api/reports` - Get all reports from database
+- `GET /api/reports/{job_id}` - Get detailed report for specific job
+- `GET /api/quarantine` - Get quarantined items from completed jobs
+
+### Data Warehouse & Analytics
+- `GET /api/warehouse/jobs` - Get warehouse job statistics
+- `POST /api/warehouse/store` - Store processed data in warehouse
+- `GET /api/warehouse/schema/{table_name}` - Get table schema information
+
+### Dynamic Schema Management
+- `GET /api/schema/registry` - Get all registered schemas
+- `POST /api/schema/register` - Register a new schema
+- `GET /api/schema/evolution/{schema_name}` - Get schema evolution history
+
+### Streaming & Real-time
+- `POST /api/stream` - Real-time API streaming validation
+- `POST /api/kafka/{job_id}` - Send job data to Kafka
+- `POST /api/pipeline/{job_id}` - Execute full pipeline
+
+## 🎨 Frontend Features
+
+### 📊 Interactive Dashboard
+- **Recent Validations**: Live updates from persistent database storage
+- **Quality Metrics**: Real-time quality score tracking with historical data
+- **System Health**: Monitor processing performance over time
+- **Persistent Data**: All charts now use real data from PostgreSQL
+
+### 📈 Analytics & Reports  
+- **Quality Trends**: Chart.js visualizations with persistent historical data
+- **Error Distribution**: Visual breakdown from database validation results
+- **Processing Volume**: Timeline of data processing activity
+- **Data Sources**: Performance metrics by data source type
+- **Historical Analysis**: Compare current vs. historical performance
+
+### 📁 File Management
+- **Drag & Drop Upload**: Intuitive file upload interface
+- **Progress Tracking**: Real-time upload and processing progress
+- **Job History**: Complete persistent history of all validation jobs
+- **Download Results**: Export validation results and reports
+- **Persistent Jobs**: Job history survives server restarts
+
+## �🔧 Validation Rules & Configuration
 
 ### Built-in Validation Rules
 
