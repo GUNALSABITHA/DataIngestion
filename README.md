@@ -1,175 +1,503 @@
-# 🚀 Enhanced Data Ingestion Pipeline
+# 🚀 Advanced Data Ingestion & Validation Platform
 
-**An intelligent, schema-agnostic data ingestion and validation system powered by Kafka, Pandas, and advanced machine learning techniques.**
+**A comprehensive, enterprise-grade data ingestion and validation system with real-time analytics, dynamic schema evolution, and interactive visualizations.**
 
 ## 🌟 Overview
 
-This pipeline revolutionizes data processing by automatically understanding any data structure and providing intelligent validation, quality assessment, and comprehensive reporting. No more manual schema definitions—the system learns and adapts to your data!
+This platform provides a complete data lifecycle management solution featuring intelligent schema inference, real-time validation, quality analytics, and interactive dashboards. Built with FastAPI, React, Postgr## 📊 Data Processing Outputs
+
+### File-Based Outputs
+- **`good_data.csv`**: Records meeting quality standards (≥80% quality score)
+- **`high_quality_data.csv`**: Premium quality records (≥90% quality score)  
+- **`quarantine.csv`**: Records requiring manual review
+- **`violations.csv`**: Records with validation errors
+
+### Database Storage
+- **Operational Tables**: Real-time processing results and metadata
+- **Warehouse Tables**: Historical data optimized for analytics and reporting
+- **Schema Registry**: Dynamic schema tracking and evolution history
+
+### Report Generation
+
+#### Interactive HTML Reports
+- Quality score distributions and trends over time
+- Field-level validation statistics and error patterns
+- Processing performance metrics and throughput analysis
+- Data completeness analysis by field and batch
+- Error categorization with actionable insights
+
+#### JSON Processing Reports
+```json
+{
+  "processing_summary": {
+    "total_records": 1000,
+    "good_data_count": 850,
+    "high_quality_count": 750,
+    "quarantine_count": 100,
+    "violations_count": 50,
+    "processing_duration": 2.5,
+    "success_rate": 95.0
+  },
+  "quality_metrics": {
+    "overall_score": 0.85,
+    "completeness": 0.92,
+    "validity": 0.88,
+    "consistency": 0.82,
+    "uniqueness": 0.91
+  },
+  "field_analysis": {
+    "customer_id": {"quality_score": 0.99, "errors": 1},
+    "email": {"quality_score": 0.87, "errors": 13},
+    "phone": {"quality_score": 0.92, "errors": 8}
+  }
+}
+```
+
+#### Real-time Dashboards
+- Live processing status with progress tracking
+- Quality trends and historical comparison charts
+- Performance monitoring and system health indicators
+- Alert management and notification system
+- Data source performance analytics
+
+#### Example Output Summary
+```
+📈 PROCESSING SUMMARY
+- Total Records: 1,000
+- Valid Records: 950
+- Success Rate: 95.0%
+- Processing Duration: 2.5s
+
+🎯 QUALITY DISTRIBUTION
+- Excellent: 800 (84.2%)
+- Good: 120 (12.6%)
+- Fair: 25 (2.6%)
+- Poor: 5 (0.5%)
+
+💡 INSIGHTS
+- Excellent data quality with very high success rate
+- Most common issue: postal_code validation
+```fka for scalable, production-ready data processing.
 
 ## ✨ Key Features
 
-### 🧠 **Intelligent Schema Inference**
-- **Zero Configuration**: Automatically understands any data structure
-- **15+ Data Type Detection**: From basic types to complex patterns (emails, phones, currencies, etc.)
-- **Quality Scoring**: Advanced quality metrics for every field and record
-- **Comprehensive Reporting**: HTML, Markdown, and text reports with insights
+### 🧠 **Intelligent Schema Processing**
+- **Dynamic Schema Detection**: Automatically understands any data structure without configuration
+- **Schema Evolution**: Tracks and adapts to changing data structures over time
+- **15+ Data Type Detection**: Advanced pattern recognition for emails, phones, currencies, dates, etc.
+- **Flexible Storage**: Both structured (PostgreSQL) and flexible (JSON) storage options
 
-- **Performance Metrics**: Processing throughput and efficiency tracking
-- **Pipeline Orchestration**: Complete pipeline orchestration with CLI interface
-- **Multiple Output Formats**: Save results in CSV, JSON, Excel, Parquet
+### 🎯 **Enterprise Validation Engine**
+- **Custom Validation Rules**: Define business-specific validation logic
+- **Quality Scoring**: Advanced quality metrics with configurable thresholds
+- **Error Categorization**: Detailed error analysis with actionable insights
+- **Batch & Streaming**: Support for both batch uploads and real-time streaming
 
-## 📁 Project Structure
+### 📊 **Interactive Analytics Dashboard**
+- **Real-time Charts**: Interactive Chart.js visualizations with live data
+- **Quality Trends**: Track data quality metrics over time
+- **Error Distribution**: Visual breakdown of validation issues
+- **Performance Metrics**: Processing throughput and system health monitoring
+- **Export Capabilities**: Download reports in multiple formats
+
+### 🏗️ **Data Warehousing & ETL**
+- **PostgreSQL Data Warehouse**: Dimensional modeling with fact and dimension tables
+- **ETL Pipeline**: Automated Extract, Transform, Load processes
+- **Historical Tracking**: Complete audit trail of all data processing activities
+- **Analytics Ready**: Pre-built aggregations for fast reporting
+
+### 🔄 **Real-time Streaming**
+- **Kafka Integration**: High-throughput message streaming with fault tolerance
+- **API Streaming**: Direct API-to-validation workflows
+- **Background Processing**: Asynchronous job execution with progress tracking
+- **Event Sourcing**: Complete event history for data lineage
+
+## 📁 Architecture Overview
 
 ```
 DataIngestion/
-├── models/
-│   ├── __init__.py
-│   └── data_models.py              # Pydantic models and validation schemas
-├── services/
-│   ├── __init__.py
-│   ├── file_processor.py           # Multi-format file processing
-│   ├── kafka_producer_enhanced.py  # Enhanced Kafka producer
-│   ├── kafka_consumer_enhanced.py  # Enhanced Kafka consumer
-│   ├── data_validator.py           # Data validation service
-│   └── data_reporter.py            # Quality reporting service
-├── kafka-docker/
-│   └── docker-compose.yml          # Kafka Docker setup
-├── data_ingestion_pipeline.py      # Main pipeline orchestrator
-├── examples.py                     # Usage examples
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+├── 🎨 frontend/                    # React + TypeScript frontend
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── charts/             # Chart.js visualization components
+│   │   │   └── ui/                 # Reusable UI components (shadcn/ui)
+│   │   ├── pages/                  # Main application pages
+│   │   │   ├── Index.tsx           # Dashboard with recent validations
+│   │   │   ├── Upload.tsx          # File upload interface
+│   │   │   ├── Reports.tsx         # Analytics & visualizations
+│   │   │   ├── Results.tsx         # Job history & management
+│   │   │   └── Dashboard.tsx       # Real-time monitoring
+│   │   ├── hooks/                  # Custom React hooks for API integration
+│   │   └── lib/                    # API client and utilities
+│   └── package.json
+├── 🐍 Backend Services/
+│   ├── api.py                      # FastAPI main application
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── data_models.py          # Pydantic models and validation schemas
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── file_processor.py       # Multi-format file processing
+│   │   ├── data_validator.py       # Advanced validation engine
+│   │   ├── data_reporter.py        # Quality reporting service
+│   │   ├── database_service.py     # PostgreSQL data warehouse
+│   │   ├── dynamic_schema_service.py # Schema evolution management
+│   │   ├── etl_service.py          # ETL pipeline orchestration
+│   │   ├── kafka_producer_enhanced.py # Enhanced Kafka producer
+│   │   └── kafka_consumer_enhanced.py # Enhanced Kafka consumer
+│   └── data_ingestion_pipeline.py  # CLI pipeline orchestrator
+├── 🐳 Infrastructure/
+│   ├── docker-compose.yml          # Multi-service Docker setup
+│   │   ├── PostgreSQL              # Data warehouse
+│   │   ├── Redis                   # Caching & session management
+│   │   ├── PgAdmin                 # Database administration
+│   │   └── Kafka + Zookeeper       # Message streaming
+├── 📊 Configuration/
+│   ├── config.ini                  # Application configuration
+│   ├── config.yaml                 # Advanced configuration
+│   └── requirements.txt            # Python dependencies
+└── 📁 Data Directories/
+    ├── output/                     # Validation results
+    ├── reports/                    # Generated reports
+    ├── temp_uploads/               # Temporary file storage
+    └── intelligent_test_output/    # Test outputs
 ```
 
-## 🛠️ Installation
+## 🛠️ Installation & Setup
 
 ### Prerequisites
-- Python 3.8+
-- Docker and Docker Compose (for Kafka)
+- **Python 3.8+** (with pip)
+- **Node.js 16+** & **npm** (for frontend)
+- **Docker & Docker Compose** (for infrastructure)
+- **Git** (for cloning the repository)
 
-### Install Dependencies
-
+### 1. Clone Repository
 ```bash
+git clone https://github.com/GUNALSABITHA/DataIngestion.git
+cd DataIngestion
+```
+
+### 2. Backend Setup
+```bash
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Configure environment (optional)
+cp config.ini.example config.ini
+# Edit config.ini with your settings
 ```
 
-### Start Kafka (Required for Kafka-based pipelines)
-
+### 3. Frontend Setup
 ```bash
-cd kafka-docker
-docker-compose up -d
+# Navigate to frontend directory
+cd frontend
+
+# Install Node.js dependencies
+npm install
+
+# Return to project root
+cd ..
 ```
 
-## 🎯 Quick Start
-
-### 1. Validate Data File Only
-
+### 4. Infrastructure Setup (Docker)
 ```bash
-python data_ingestion_pipeline.py validate-file --input-file CustomersData.csv
-```
-### 2. Send File to Kafka with Validation
+# Start all infrastructure services
+docker compose up -d
 
+# Verify services are running
+docker compose ps
+```
+
+**Services Started:**
+- 🐘 **PostgreSQL** (port 5432) - Data warehouse
+- 🟥 **Redis** (port 6379) - Caching & sessions  
+- 🌐 **PgAdmin** (port 8081) - Database management UI
+- 📨 **Kafka** (port 9092) - Message streaming
+- 🔧 **Zookeeper** (port 2181) - Kafka coordination
+
+### 5. Database Initialization
+The database tables are automatically created when you first start the backend API.
+
+## 🚀 Quick Start
+
+### Method 1: Full Web Application (Recommended)
+
+#### 1. Start Backend API
 ```bash
+# In project root directory
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. Consume from Kafka and Analyze
+#### 2. Start Frontend (New Terminal)
 ```bash
-python data_ingestion_pipeline.py kafka-to-analysis --topic customer_data --timeout 30
+# In frontend directory
+cd frontend
+npm run dev
 ```
-### 4. Full Pipeline (File → Kafka → Analysis)
 
+#### 3. Access the Application
+- 🌐 **Frontend**: http://localhost:5173 (or displayed port)
+- 📡 **API Docs**: http://localhost:8000/docs
+- 🗄️ **Database Admin**: http://localhost:8081
+
+#### 4. Upload & Validate Data
+1. Navigate to the **Upload** page
+2. Drag & drop or select your data file (CSV, JSON, Excel, etc.)
+3. Choose validation action (validate, kafka, pipeline)
+4. Monitor progress in real-time
+5. View results in **Reports** and **History** pages
+
+### Method 2: Command Line Interface
+
+#### Basic File Validation
 ```bash
-python data_ingestion_pipeline.py full-pipeline --input-file CustomersData.csv --topic customer_data
+python data_ingestion_pipeline.py validate-file --input-file data.csv
 ```
-### 5. Run Examples
 
+#### Full Pipeline with Kafka
 ```bash
+python data_ingestion_pipeline.py full-pipeline --input-file data.csv --topic customer_data
+```
+
+#### API Streaming Validation
+```bash
+python data_ingestion_pipeline.py api-streaming --api-url "http://api.example.com/data"
+```
+
+### Method 3: Direct API Usage
+
+#### Upload File via API
+```bash
+curl -X POST "http://localhost:8000/api/upload" \
+  -F "file=@data.csv" \
+  -F "action=validate"
+```
+
+#### Check Job Status
+```bash
+curl "http://localhost:8000/api/job/YOUR_JOB_ID/status"
 ```
 
 
-### Command Line Interface
+## 📡 API Endpoints
 
+### Core Upload & Validation
+- `POST /api/upload` - Upload and process files
+- `POST /api/upload-dynamic` - Upload with dynamic schema detection
+- `GET /api/job/{job_id}/status` - Get job status and progress
+- `GET /api/jobs` - List all jobs
+- `GET /api/recent-validations` - Get recent validation history
+- `DELETE /api/jobs/{job_id}` - Delete a job
 
-#### Common Options
-- `--input-file, -i`: Input data file path
-- `--quality-threshold, -q`: Quality threshold (default: 0.8)
-- `--output-dir, -o`: Output directory (default: output)
-- `--verbose, -v`: Enable verbose logging
-### Python API Usage
+### Data Warehouse & Analytics
+- `GET /api/warehouse/jobs` - Get warehouse job statistics
+- `POST /api/warehouse/store` - Store processed data in warehouse
+- `GET /api/warehouse/schema/{table_name}` - Get table schema information
 
-#### File Validation Only
+### Dynamic Schema Management
+- `GET /api/schema/registry` - Get all registered schemas
+- `POST /api/schema/register` - Register a new schema
+- `GET /api/schema/evolution/{schema_name}` - Get schema evolution history
+
+### Reports & Analytics
+- `GET /api/reports/dashboard-stats` - Dashboard statistics
+- `GET /api/reports/processing-timeline` - Processing timeline data
+- `GET /api/reports/data-sources` - Data source performance
+- `GET /api/reports/quality-metrics` - Quality metrics over time
+
+### Streaming & Real-time
+- `POST /api/streaming/validate` - Real-time API streaming validation
+- `POST /api/kafka/{job_id}` - Send job data to Kafka
+- `POST /api/pipeline/{job_id}` - Execute full pipeline
+
+## 🎨 Frontend Features
+
+### 📊 Interactive Dashboard
+- **Recent Validations**: Live updates of latest validation jobs
+- **Quality Metrics**: Real-time quality score tracking
+- **System Health**: Monitor processing performance
+
+### 📈 Analytics & Reports
+- **Quality Trends**: Chart.js visualizations of data quality over time
+- **Error Distribution**: Visual breakdown of validation issues
+- **Processing Volume**: Timeline of data processing activity
+- **Data Sources**: Performance metrics by data source type
+
+### 📁 File Management
+- **Drag & Drop Upload**: Intuitive file upload interface
+- **Progress Tracking**: Real-time upload and processing progress
+- **Job History**: Complete history of all validation jobs
+- **Download Results**: Export validation results and reports
+
+### ⚙️ Configuration
+- **Validation Rules**: Configure custom validation thresholds
+- **Quality Settings**: Adjust quality scoring parameters
+- **Export Options**: Choose output formats and destinations
+## 🔧 Validation Rules & Configuration
+
+### Built-in Validation Rules
+
+#### Data Type Validation
+- **String Types**: Text validation with length limits and pattern matching
+- **Numeric Types**: Integer and float validation with range checking
+- **Date/Time**: Multiple date format detection and validation
+- **Boolean**: Flexible boolean value recognition
+- **Email**: RFC-compliant email format validation
+- **Phone**: International phone number format validation
+- **URL**: Web URL format and accessibility validation
+
+#### Business Logic Validation
+- **Required Fields**: Mark fields as mandatory
+- **Unique Constraints**: Ensure value uniqueness across dataset
+- **Referential Integrity**: Cross-field validation rules
+- **Custom Patterns**: Regular expression-based validation
+- **Value Lists**: Validate against predefined acceptable values
+- **Range Validation**: Min/max value constraints
+
+### Custom Validation Rules
+
+#### Creating Custom Rules
 ```python
-from data_ingestion_pipeline import DataIngestionPipeline
+from models.data_models import ValidationRule
 
-pipeline = DataIngestionPipeline()
-results = pipeline.validate_file_only(
-    input_file="data.csv",
-
-#### Using Individual Services
-
-```python
-from services.file_processor import FileProcessor
-from services.data_validator import DataValidator
-
-# Process file
-processor = FileProcessor()
-df = processor.load_data_from_file("data.xlsx")  # Auto-detects format
-records = processor.convert_dataframe_to_records(df)
-
-# Validate data
-validator = DataValidator()
-results = validator.validate_batch(records)
-bad_data = validator.get_bad_data()
+# Define custom validation rule
+custom_rule = ValidationRule(
+    field_name="customer_id",
+    rule_type="pattern",
+    rule_value=r"^CUST\d{6}$",
+    error_message="Customer ID must start with CUST followed by 6 digits"
+)
 ```
 
-#### Kafka Operations
+#### Configuration Options
+```yaml
+# config.yaml
+validation:
+  quality_threshold: 0.8
+  strict_mode: false
+  max_errors_per_record: 10
+  
+quality_levels:
+  excellent: 0.9
+  good: 0.8
+  fair: 0.6
+  poor: 0.0
 
-```python
-from services.kafka_producer_enhanced import send_csv_to_kafka
-from services.kafka_consumer_enhanced import EnhancedKafkaConsumer
-
-# Quick send to Kafka
-stats = send_csv_to_kafka("data.csv", "my_topic")
-
-# Enhanced consumption
-consumer = EnhancedKafkaConsumer("my_topic")
-results = consumer.start_consuming(max_records=1000, timeout_seconds=60)
+processing:
+  batch_size: 1000
+  timeout_seconds: 300
+  max_file_size_mb: 100
 ```
 
-## 📊 Data Model and Validation
+### Schema Evolution & Dynamic Detection
 
-### Customer Transaction Model
+#### Automatic Schema Detection
+- **Field Type Inference**: Automatically detect appropriate data types
+- **Pattern Recognition**: Identify common patterns (emails, phones, IDs)
+- **Null Handling**: Smart null value detection and handling
+- **Encoding Detection**: Automatic character encoding detection
 
-The pipeline uses a comprehensive Pydantic model for customer transactions:
+#### Schema Evolution Tracking
+- **Version Management**: Track schema changes over time
+- **Backward Compatibility**: Maintain compatibility with previous versions
+- **Migration Support**: Automatic data migration between schema versions
+- **Change Documentation**: Log all schema modifications
+
+## 📊 Data Models & Quality Assessment
+
+### Enhanced Customer Transaction Model
 
 ```python
 class CustomerTransaction(BaseModel):
-    customer_id: str
-    company_name: str
-    contact_name: str
-    contact_title: str
-    city: str
-    region: Optional[str]
-    postal_code: str
-    country: str
-    segment: str
-    metro_area: Union[bool, str]
-    # ... additional fields
+    # Customer Information
+    customer_id: str = Field(..., pattern=r"^[A-Z]{2,5}\d{3,8}$")
+    company_name: str = Field(..., min_length=1, max_length=100)
+    contact_name: str = Field(..., min_length=1, max_length=50)
+    contact_title: Optional[str] = Field(None, max_length=50)
+    
+    # Address Information
+    address: Optional[str] = Field(None, max_length=200)
+    city: str = Field(..., min_length=1, max_length=50)
+    region: Optional[str] = Field(None, max_length=50)
+    postal_code: str = Field(..., pattern=r"^\d{5}(-\d{4})?$")
+    country: str = Field(..., min_length=2, max_length=50)
+    
+    # Contact Information
+    phone: Optional[str] = Field(None, pattern=r"^\+?[\d\s\-\(\)]+$")
+    email: Optional[EmailStr] = None
+    
+    # Business Information
+    segment: str = Field(..., pattern=r"^(Enterprise|SMB|Consumer)$")
+    industry: Optional[str] = Field(None, max_length=50)
+    revenue: Optional[float] = Field(None, ge=0)
+    
+    # Metadata
+    created_date: datetime = Field(default_factory=datetime.now)
+    last_updated: Optional[datetime] = None
+    
+    # Quality Scoring
+    quality_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    validation_errors: List[str] = Field(default_factory=list)
 ```
 
-### Validation Features
+### Quality Assessment Framework
 
-- **Field Validation**: Type checking, length validation, format validation
-- **Data Cleaning**: Automatic trimming, case normalization
-- **Quality Scoring**: 0-1 quality score based on completeness and validity
-- **Error Categorization**: Detailed error messages with field-level information
-- **Warning System**: Warnings for data quality issues
+#### Quality Dimensions
+1. **Completeness**: Percentage of non-null required fields
+2. **Validity**: Compliance with data type and format rules
+3. **Consistency**: Internal consistency across related fields
+4. **Uniqueness**: Absence of duplicate records
+5. **Accuracy**: Correctness of data values
+6. **Timeliness**: Freshness and currency of data
 
-### Quality Levels
+#### Quality Score Calculation
+```python
+def calculate_quality_score(record):
+    scores = {
+        'completeness': calculate_completeness(record),
+        'validity': calculate_validity(record),
+        'consistency': calculate_consistency(record),
+        'uniqueness': calculate_uniqueness(record)
+    }
+    
+    # Weighted average
+    weights = {'completeness': 0.3, 'validity': 0.4, 'consistency': 0.2, 'uniqueness': 0.1}
+    return sum(scores[dim] * weights[dim] for dim in scores)
+```
 
-- **Excellent** (≥90%): Production-ready data
-- **Good** (≥80%): Acceptable with minor issues
-- **Fair** (≥60%): Requires review
-- **Poor** (<60%): Needs significant attention
+### Data Warehouse Schema
+
+#### Fact Tables
+- `data_processing_fact`: Core processing metrics and results
+- `validation_fact`: Detailed validation results and errors
+- `quality_fact`: Quality scores and trends over time
+
+#### Dimension Tables
+- `processing_job_dim`: Job metadata and configuration
+- `data_source_dim`: Data source information and characteristics
+- `time_dim`: Time dimension for temporal analysis
+- `schema_dim`: Schema version and evolution tracking
+
+## 🔄 ETL Pipeline & Data Warehouse
+
+### ETL Process Flow
+
+1. **Extract**: Load data from various sources (files, APIs, streams)
+2. **Transform**: Apply validation rules, quality scoring, and data cleaning
+3. **Load**: Store processed data in both operational and analytical stores
+
+### Warehouse Features
+
+#### Data Storage Strategy
+- **Operational Store**: Real-time data for immediate processing
+- **Analytical Store**: Optimized for reporting and analytics
+- **Archive Store**: Long-term storage for compliance and auditing
+
+#### Performance Optimization
+- **Partitioning**: Time-based and source-based partitioning
+- **Indexing**: Strategic indexing for fast query performance
+- **Aggregations**: Pre-computed aggregations for common queries
+- **Compression**: Data compression for storage efficiency
 
 ## 📈 Reporting and Analytics
 

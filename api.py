@@ -1364,30 +1364,16 @@ async def get_dashboard_stats():
         }
         
     except Exception as e:
-        # Return mock data if database queries fail
+        # Return empty data structure if database queries fail
+        logger.error(f"Dashboard stats query failed: {e}")
         return {
-            "job_statistics": [
-                {"status": "completed", "count": 45, "avg_duration": 12.5},
-                {"status": "failed", "count": 3, "avg_duration": 8.2},
-                {"status": "processing", "count": 2, "avg_duration": None}
-            ],
-            "quality_trends": [
-                {"date": "2025-09-10", "completeness": 95.2, "validity": 89.1, "consistency": 92.8, "records_processed": 1250},
-                {"date": "2025-09-11", "completeness": 96.1, "validity": 91.3, "consistency": 94.2, "records_processed": 1180},
-                {"date": "2025-09-12", "completeness": 94.8, "validity": 88.7, "consistency": 93.1, "records_processed": 1320},
-                {"date": "2025-09-13", "completeness": 97.2, "validity": 92.8, "consistency": 95.4, "records_processed": 1095}
-            ],
-            "error_distribution": [
-                {"error_type": "Missing Required Field", "count": 23},
-                {"error_type": "Invalid Date Format", "count": 18},
-                {"error_type": "Duplicate Record", "count": 12},
-                {"error_type": "Invalid Email", "count": 8},
-                {"error_type": "Out of Range Value", "count": 5}
-            ],
+            "job_statistics": [],
+            "quality_trends": [],
+            "error_distribution": [],
             "summary": {
-                "total_jobs": 50,
-                "avg_quality_score": 93.2,
-                "total_errors": 66
+                "total_jobs": 0,
+                "avg_quality_score": 0,
+                "total_errors": 0
             }
         }
 
@@ -1418,23 +1404,10 @@ async def get_processing_timeline(days: int = 7):
         }
         
     except Exception as e:
-        # Return mock data if database queries fail
-        from datetime import datetime, timedelta
-        base_time = datetime.now() - timedelta(days=days)
-        mock_timeline = []
-        
-        for i in range(days * 6):  # 6 data points per day
-            timestamp = base_time + timedelta(hours=i*4)
-            mock_timeline.append({
-                "timestamp": timestamp.isoformat(),
-                "status": "completed",
-                "count": 3 + (i % 5),
-                "avg_records": 150 + (i % 100),
-                "total_records": (3 + (i % 5)) * (150 + (i % 100))
-            })
-        
+        # Return empty timeline if database queries fail
+        logger.error(f"Processing timeline query failed: {e}")
         return {
-            "timeline": mock_timeline,
+            "timeline": [],
             "period_days": days
         }
 
