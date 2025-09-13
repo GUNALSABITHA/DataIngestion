@@ -47,3 +47,24 @@ pkg/
 src/
 temp_uploads/
 
+# Output and generated files
+output/
+reports/
+validation_output/
+test_output/
+intelligent_test_output/
+file_processor_output/
+api_output/
+
+# Data files (exclude from version control)
+*.csv
+*.json
+*.parquet
+*.xlsx
+*.xls
+
+# Test and sample data
+test_data.*
+sample_*
+mock_*
+

@@ -2,14 +2,68 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
-import { Upload, Database, Shield, BarChart3, CheckCircle, Clock, FileText } from "lucide-react";
+import { Upload, Database, Shield, BarChart3, CheckCircle, Clock, FileText, AlertCircle, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
 
 const Index = () => {
-  const recentValidations = [
-    { name: "customer_data.csv", status: "completed", timestamp: "2 hours ago" },
-    { name: "product_inventory.xlsx", status: "warning", timestamp: "4 hours ago" },
-    { name: "transaction_log.json", status: "completed", timestamp: "1 day ago" },
-  ];
+  const [recentValidations, setRecentValidations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch recent validations from API
+  useEffect(() => {
+    const fetchRecentValidations = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch('http://localhost:8000/api/recent-validations?limit=5');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        setRecentValidations(data.validations || []);
+      } catch (err) {
+        console.error('Failed to fetch recent validations:', err);
+        setError('Failed to load recent validations');
+        // Set empty array instead of fallback mock data
+        setRecentValidations([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRecentValidations();
+  }, []);
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="h-4 w-4 text-success" />;
+      case 'error':
+      case 'failed':
+        return <AlertCircle className="h-4 w-4 text-destructive" />;
+      case 'running':
+        return <Loader2 className="h-4 w-4 text-primary animate-spin" />;
+      default:
+        return <Clock className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusVariant = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'default';
+      case 'error':
+      case 'failed':
+        return 'destructive';
+      case 'running':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
 
   const features = [
     {
@@ -85,31 +139,88 @@ const Index = () => {
           <div className="lg:col-span-2">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Clock className="h-5 w-5" />
-                  <span>Recent Validations</span>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center space-x-2">
+                    <Clock className="h-5 w-5" />
+                    <span>Recent Validations</span>
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setLoading(true);
+                      setError(null);
+                      // Re-trigger the useEffect by changing the dependency
+                      const fetchRecentValidations = async () => {
+                        try {
+                          const response = await fetch('http://localhost:8000/api/recent-validations?limit=5');
+                          if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                          }
+                          const data = await response.json();
+                          setRecentValidations(data.validations || []);
+                        } catch (err) {
+                          console.error('Failed to fetch recent validations:', err);
+                          setError('Failed to load recent validations');
+                          // Keep current fallback data if any
+                        } finally {
+                          setLoading(false);
+                        }
+                      };
+                      fetchRecentValidations();
+                    }}
+                    disabled={loading}
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+                  </Button>
+                </div>
                 <CardDescription>
                   Your latest data validation activity
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {recentValidations.map((validation, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                      <div className="flex items-center space-x-3">
-                        <CheckCircle className="h-4 w-4 text-success" />
-                        <span className="font-medium">{validation.name}</span>
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    <span className="ml-2 text-muted-foreground">Loading recent validations...</span>
+                  </div>
+                ) : error ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <AlertCircle className="h-5 w-5 mr-2" />
+                    <span>{error}</span>
+                  </div>
+                ) : recentValidations.length === 0 ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <Clock className="h-5 w-5 mr-2" />
+                    <span>No recent validations found</span>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {recentValidations.map((validation, index) => (
+                      <div key={validation.id || index} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                        <div className="flex items-center space-x-3">
+                          {getStatusIcon(validation.status)}
+                          <span className="font-medium">{validation.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant={getStatusVariant(validation.status)}>
+                            {validation.status}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">{validation.timestamp}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Badge variant={validation.status === "completed" ? "default" : "secondary"}>
-                          {validation.status}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">{validation.timestamp}</span>
+                    ))}
+                    {recentValidations.length > 0 && (
+                      <div className="pt-2 border-t">
+                        <Link to="/results">
+                          <Button variant="ghost" size="sm" className="w-full">
+                            View All Validations →
+                          </Button>
+                        </Link>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

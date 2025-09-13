@@ -179,6 +179,18 @@ class ApiClient {
     return response.json();
   }
 
+  // List all jobs
+  async listJobs(): Promise<{ jobs: JobStatus[], count: number }> {
+    return this.request<{ jobs: JobStatus[], count: number }>('/api/jobs');
+  }
+
+  // Delete a job
+  async deleteJob(jobId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(`/api/jobs/${jobId}`, {
+      method: 'DELETE'
+    });
+  }
+
   // Poll job status until completion
   async pollJobStatus(jobId: string, onProgress?: (status: JobStatus) => void): Promise<JobStatus> {
     return new Promise((resolve, reject) => {

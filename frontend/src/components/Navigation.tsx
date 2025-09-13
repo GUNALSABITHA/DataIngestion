@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Database, Upload, BarChart3, Shield, Home } from "lucide-react";
+import { Database, Upload, BarChart3, Shield, Home, TrendingUp } from "lucide-react";
 
 interface NavigationProps {
   isLoggedIn: boolean;
@@ -13,6 +13,7 @@ const Navigation = ({ isLoggedIn, onLogout }: NavigationProps) => {
     { to: "/upload", label: "Upload", icon: Upload },
     { to: "/quarantine", label: "Quarantine", icon: Shield },
     { to: "/results", label: "History", icon: BarChart3 },
+    { to: "/reports", label: "Reports", icon: TrendingUp },
   ];
 
   return (

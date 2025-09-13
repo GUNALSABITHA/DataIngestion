@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-ro
 import Index from "./pages/Index";
 import Upload from "./pages/Upload";
 import Results from "./pages/Results";
+import Reports from "./pages/Reports";
 import Quarantine from "./pages/Quarantine";
 import NotFound from "./pages/NotFound";
 import Navigation from "./components/Navigation";
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/" element={isLoggedIn ? <Index /> : <Login onLogin={handleLogin} />} />
         <Route path="/upload" element={isLoggedIn ? <Upload /> : <Login onLogin={handleLogin} />} />
         <Route path="/results" element={isLoggedIn ? <Results /> : <Login onLogin={handleLogin} />} />
+        <Route path="/reports" element={isLoggedIn ? <Reports /> : <Login onLogin={handleLogin} />} />
         <Route path="/quarantine" element={isLoggedIn ? <Quarantine /> : <Login onLogin={handleLogin} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
