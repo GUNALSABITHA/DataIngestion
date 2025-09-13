@@ -44,7 +44,6 @@ build/
 
 # Directories
 pkg/
-src/
 temp_uploads/
 
 # Output and generated files
