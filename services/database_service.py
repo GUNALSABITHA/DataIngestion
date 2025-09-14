@@ -180,6 +180,10 @@ class DatabaseService:
                     return {"affected_rows": result.rowcount}
         except Exception as e:
             logger.error(f"Query execution failed: {str(e)}")
+            logger.error(f"Query was: {query}")
+            logger.error(f"Parameters: {params}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     @asynccontextmanager

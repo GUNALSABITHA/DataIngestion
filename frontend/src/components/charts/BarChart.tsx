@@ -22,8 +22,17 @@ export const BarChart: React.FC<BarChartProps> = ({
   height = 300,
   horizontal = false,
 }) => {
+  // Add safety checks for data
+  if (!data || !data.datasets || !Array.isArray(data.datasets)) {
+    return (
+      <div className="w-full flex items-center justify-center" style={{ height }}>
+        <p className="text-gray-500">No data available</p>
+      </div>
+    );
+  }
+
   const chartData = {
-    labels: data.labels,
+    labels: data.labels || [],
     datasets: data.datasets.map((dataset, index) => ({
       label: dataset.label,
       data: dataset.data,

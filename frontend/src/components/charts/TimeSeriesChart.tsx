@@ -20,6 +20,15 @@ export const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   title,
   height = 300,
 }) => {
+  // Add safety checks for data
+  if (!data || !data.datasets || !Array.isArray(data.datasets) || !data.timestamps) {
+    return (
+      <div className="w-full flex items-center justify-center" style={{ height }}>
+        <p className="text-gray-500">No data available</p>
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.timestamps.map(ts => new Date(ts)),
     datasets: data.datasets.map((dataset, index) => ({

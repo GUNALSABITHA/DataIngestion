@@ -17,6 +17,15 @@ export const PieChart: React.FC<PieChartProps> = ({
   title,
   height = 300,
 }) => {
+  // Add safety checks for data
+  if (!data || !data.labels || !data.values || !Array.isArray(data.labels) || !Array.isArray(data.values)) {
+    return (
+      <div className="w-full flex items-center justify-center" style={{ height }}>
+        <p className="text-gray-500">No data available</p>
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.labels,
     datasets: [
